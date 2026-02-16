@@ -135,18 +135,10 @@ export class GatewayClient extends EventEmitter {
             token: this.token,
             intents: Number(this.intents),
             properties: {
-                '$os': process.platform,
-                '$browser': 'fluxer.js',
-                '$device': 'fluxer.js',
-            },
-            presence: {
-                activities: [],
-                status: 'online',
-                afk: false
-            },
-            compress: false,
-            large_threshold: 250,
-            shard: [0, 1]
+                os: process.platform,
+                browser: 'fluxer.js',
+                device: 'fluxer.js',
+            }
         };
         this.emit('debug', `Identifying with payload: ${JSON.stringify({ ...payload, token: '[REDACTED]' })}`);
         this.send(GatewayOpCodes.Identify, payload);
