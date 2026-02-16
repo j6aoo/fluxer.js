@@ -4,3 +4,8 @@ export * from './gateway';
 export * from './types';
 export * from './util';
 export * from './consts';
+export { User as UserStructure } from './structures/User';
+export { Channel as ChannelStructure } from './structures/Channel';
+export { Message as MessageStructure } from './structures/Message';
+export * from './managers/ChannelManager';
+export * from './managers/UserManager';

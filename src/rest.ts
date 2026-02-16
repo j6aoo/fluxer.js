@@ -37,8 +37,9 @@ export class RestClient {
             });
         }
 
+        const authHeader = this.token.startsWith('Bot ') ? this.token : `Bot ${this.token}`;
         const headers: Record<string, string> = {
-            'Authorization': `Bot ${this.token}`,
+            'Authorization': authHeader,
             'User-Agent': this.userAgent,
             ...(options.headers as Record<string, string>),
         };
