@@ -1,25 +1,31 @@
 {
-  "name": "fluxer.js-sdk",
+  "name": "fluxer.js",
   "version": "1.0.0",
-  "description": "TypeScript SDK for Fluxer API",
+  "description": "Official TypeScript/JavaScript SDK for the Fluxer API - Build bots for Fluxer",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
   "scripts": {
     "build": "tsc",
-    "prepublishOnly": "npm run build",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "prepublishOnly": "npm run build"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": ["fluxer", "bot", "sdk", "api", "websocket", "chat"],
+  "author": "Fluxer",
+  "license": "MIT",
   "type": "commonjs",
-  "devDependencies": {
-    "@types/node": "^25.2.3",
-    "@types/ws": "^8.18.1",
-    "typescript": "^5.9.3",
+  "dependencies": {
     "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fluxerapp/fluxer.js"
   }
 }

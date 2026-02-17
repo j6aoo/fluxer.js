@@ -1,3 +1,34 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+
+# Environment variables
 .env
+.env.*
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.slim/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test artifacts
+test_output.txt
+test-connection.js
+coverage/
+
+# Package lock (optional — remove this line if you want to track it)
+# package-lock.json
