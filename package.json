@@ -1,6 +1,6 @@
 {
-  "name": "fluxer.js",
-  "version": "1.0.0",
+  "name": "fluxer.js-sdk",
+  "version": "1.0.1",
   "description": "Official TypeScript/JavaScript SDK for the Fluxer API - Build bots for Fluxer",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
