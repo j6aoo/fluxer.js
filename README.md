@@ -1,101 +1,101 @@
 # fluxer.js
 
-Uma SDK que não te abandona no meio do caminho. Diferente daquele relacionamento tóxico que você teve.
+An SDK that doesn’t abandon you halfway through. Unlike that toxic relationship you had.
 
-## O que é isso aqui
+## What is this
 
-O Fluxer é basicamente um Discord que decidiu seguir sua própria jornada. É open source, independente, e tem uma API praticamente idêntica à do Discord. Sabe aquela história de "se funciona no Discord, funciona aqui"? Pois é, mais ou menos isso. Muda a URL base e pronto, você tá no rolê.
+Fluxer is basically a Discord that decided to follow its own journey. It’s open source, independent, and has an API practically identical to Discord’s. You know that story of “if it works on Discord, it works here”? Yeah, more or less that. Change the base URL and boom, you’re in.
 
-Essa SDK aqui é pra você que quer construir bots pro Fluxer sem perder a sanidade mental. A gente já fez o trabalho sujo de lidar com WebSocket, rate limits, caches, e todas aquelas coisas chatas que ninguém quer implementar do zero.
+This SDK here is for you who want to build bots for Fluxer without losing your sanity. We already did the dirty work of dealing with WebSocket, rate limits, caches, and all those boring things nobody wants to implement from scratch.
 
-## Por que usar isso
+## Why use this
 
-**Sharding que realmente funciona**: Sabe aquele bot que você tem que dividir em shards porque cresceu demais? A gente resolveu isso de um jeito que não dá vontade de chorar. Multi-process, IPC, auto-respawn quando o shard morre (e ele vai morrer). Tá tudo aqui.
+**Sharding that actually works**: You know that bot you have to split into shards because it grew too much? We solved that in a way that doesn’t make you want to cry. Multi-process, IPC, auto-respawn when a shard dies (and it will die). It’s all here.
 
-**Rate limiting que não te deixa na mão**: A API do Fluxer tem limites. A gente respeita esses limites automaticamente. Filas, buckets, retries com backoff exponencial. Você não precisa ficar calculando delay na mão como se fosse 2015.
+**Rate limiting that doesn’t leave you hanging**: The Fluxer API has limits. We automatically respect those limits. Queues, buckets, retries with exponential backoff. You don’t need to manually calculate delays like it’s 2015.
 
-**Builders que fazem sentido**: Quer mandar uma mensagem com botões, selects, modais? Tem builder pra tudo. E eles validam suas merdas antes de você descobrir no runtime que botão não pode ter mais de 80 caracteres.
+**Builders that make sense**: Want to send a message with buttons, selects, modals? There’s a builder for everything. And they validate your crap before you find out at runtime that a button can’t have more than 80 characters.
 
-**TypeScript que não te odeia**: Tipagem forte, autocomplete que funciona, e zero dessas gambiarras de `any` escondido. Se tá tipado, tá tipado direito.
+**TypeScript that doesn’t hate you**: Strong typing, autocomplete that works, and none of those hidden `any` hacks. If it’s typed, it’s typed properly.
 
-## O que você pode fazer
+## What you can do
 
-**Bots pequenos**: Aquele bot de moderação básica pro seu servidor de amigos. Funciona de boa.
+**Small bots**: That basic moderation bot for your friends’ server. Works just fine.
 
-**Bots médios**: Servidor com alguns milhares de membros, várias guilds. O cache inteligente e o rate limiting automático carregam isso nas costas.
+**Medium bots**: Server with a few thousand members, multiple guilds. Smart caching and automatic rate limiting carry that on their backs.
 
-**Bots gigantes**: Sharding automático, broadcast entre processos, gerenciamento de presença em escala. A SDK não trava quando seu bot entra em 10 mil servidores.
+**Huge bots**: Automatic sharding, cross-process broadcast, presence management at scale. The SDK doesn’t freeze when your bot joins 10 thousand servers.
 
-**Webhooks**: Recebe interações via HTTP sem precisar manter WebSocket aberto 24/7. Útil pra quem gosta de serverless e não quer pagar por container ocioso.
+**Webhooks**: Receive interactions via HTTP without keeping a WebSocket open 24/7. Useful if you like serverless and don’t want to pay for idle containers.
 
-**Automação**: Scripts que rodam uma vez e saem. CRUD de mensagens, gestão de membros, backup de servidores. Você decide se quer modo REST-only ou com gateway.
+**Automation**: Scripts that run once and exit. Message CRUD, member management, server backups. You decide if you want REST-only mode or gateway.
 
-## Arquitetura que a gente segue
+## Architecture we follow
 
-A SDK é estruturada de um jeito que você consegue achar as coisas sem ter que abrir 15 arquivos diferentes.
+The SDK is structured in a way that lets you find things without opening 15 different files.
 
-**Structures** são os objetos que representam coisas da API. Usuários, mensagens, canais, guilds. Eles têm métodos pra fazer operações e getters pra informações derivadas. Quer banir alguém? `member.ban()`. Quer saber a cor do cargo mais alto? `member.displayHexColor`. Simples assim.
+**Structures** are the objects that represent API things. Users, messages, channels, guilds. They have methods to perform operations and getters for derived information. Want to ban someone? `member.ban()`. Want to know the color of the highest role? `member.displayHexColor`. Simple like that.
 
-**Managers** cuidam dos caches e das operações em grupo. O GuildManager busca guilds. O MessageManager busca mensagens. Eles lidam com a paginação chata, atualização de caches, e invalidação quando necessário. Você não precisa ficar gerenciando Map na mão.
+**Managers** handle caches and group operations. GuildManager fetches guilds. MessageManager fetches messages. They deal with annoying pagination, cache updates, and invalidation when needed. You don’t need to manually manage a Map.
 
-**Builders** são pra quando você precisa construir objetos complexos. Embeds, botões, selects, modais. É o padrão fluent que encadeia métodos e valida tudo no final. Nada de passar objeto JSON de 50 linhas.
+**Builders** are for when you need to construct complex objects. Embeds, buttons, selects, modals. It’s the fluent pattern chaining methods and validating everything at the end. No passing around 50-line JSON objects.
 
-**Sharding** é separado porque sharding é complicado demais pra ser só mais uma opção no Client. GatewayShard gerencia uma conexão. GatewayManager gerencia várias. ShardingManager sobe processos separados. Cada um no seu quadrado.
+**Sharding** is separate because sharding is too complicated to be just another option in Client. GatewayShard manages one connection. GatewayManager manages multiple. ShardingManager spawns separate processes. Each in its own lane.
 
-## Cache que não explode sua memória
+## Cache that doesn’t blow up your memory
 
-Por padrão a gente usa LimitedCollection com sweepers automáticos. Mensagens antigas somem sozinhas. Membros inativos são removidos. Presenças podem ser desabilitadas completamente se você não precisa. Você define limites por manager e a SDK respeita.
+By default we use LimitedCollection with automatic sweepers. Old messages disappear on their own. Inactive members are removed. Presences can be completely disabled if you don’t need them. You define limits per manager and the SDK respects them.
 
-Se você quer cache infinito, pode configurar. Mas a gente não recomenda. Já viu bot de Discord morrer por memory leak? A gente também viu. Por isso os defaults são conservadores.
+If you want infinite cache, you can configure it. But we don’t recommend it. Ever seen a Discord bot die from a memory leak? We have. That’s why the defaults are conservative.
 
-## Rate limiting sério
+## Serious rate limiting
 
-A SDK implementa filas sequenciais por bucket. Requests pro mesmo endpoint esperam uma da outra. Quando bate 429, a gente espera o retry-after e tenta de novo. Se for rate limit global, todo mundo para e espera.
+The SDK implements sequential queues per bucket. Requests to the same endpoint wait for each other. When a 429 happens, we wait for the retry-after and try again. If it’s a global rate limit, everyone stops and waits.
 
-Isso significa que você pode fazer 100 chamadas simultâneas que a SDK vai serializar o que precisa e paralelizar o que pode. Sem você ter que pensar nisso.
+That means you can fire 100 simultaneous calls and the SDK will serialize what needs to be serialized and parallelize what can be parallelized. Without you having to think about it.
 
-## Eventos que você realmente usa
+## Events you actually use
 
-A gente não emite evento genérico demais. Cada evento do gateway vira uma instância de structure apropriada. MESSAGE_CREATE vira Message. GUILD_MEMBER_UPDATE vira GuildMember. E você recebe old e new quando faz sentido.
+We don’t emit overly generic events. Each gateway event becomes an instance of the appropriate structure. MESSAGE_CREATE becomes Message. GUILD_MEMBER_UPDATE becomes GuildMember. And you receive old and new when it makes sense.
 
-Os eventos seguem o padrão do Discord, então se você já usou discord.js, sabe exatamente o que esperar. ready, messageCreate, guildCreate, interactionCreate. Os mesmos nomes, os mesmos payloads.
+The events follow the Discord pattern, so if you’ve used discord.js before, you know exactly what to expect. ready, messageCreate, guildCreate, interactionCreate. Same names, same payloads.
 
-## E se eu quiser usar sem gateway
+## What if I want to use it without gateway
 
-Tem modo REST-only. Você cria o RestClient direto, sem passar pelo Client. Faz requests pra API sem manter WebSocket aberto. Útil pra scripts, cron jobs, ou quando você só precisa mandar mensagem ocasionalmente.
+There’s a REST-only mode. You create the RestClient directly, without going through Client. Make API requests without keeping a WebSocket open. Useful for scripts, cron jobs, or when you only need to send messages occasionally.
 
-O RestClient tem os mesmos métodos que o client.rest, então migrar de um pro outro é trocar uma linha.
+RestClient has the same methods as client.rest, so migrating from one to the other is changing one line.
 
-## Testes que não são piada
+## Tests that aren’t a joke
 
-A gente usa Vitest. Tem cobertura de código, thresholds definidos, e mocks pra tudo. Quando você quebrar algo, vai saber antes de subir pra produção.
+We use Vitest. There’s code coverage, defined thresholds, and mocks for everything. When you break something, you’ll know before pushing to production.
 
-Os testes estão em `__tests__/` e são separados em unitários (lógica pura) e integração (que precisam de API real). Você roda tudo com `npm test` ou vê coverage com `npm run test:coverage`.
+Tests live in `__tests__/` and are separated into unit (pure logic) and integration (which require a real API). You run everything with `npm test` or check coverage with `npm run test:coverage`.
 
-## Documentação que dá pra usar
+## Documentation you can actually use
 
-Geração automática com TypeDoc. Toda a API pública documentada. Types, interfaces, enums, tudo explicado. Se seu editor mostra JSDoc, você já tem a documentação no autocomplete.
+Automatic generation with TypeDoc. All public API documented. Types, interfaces, enums, everything explained. If your editor shows JSDoc, you already have documentation in autocomplete.
 
-Tem também exemplos práticos em `examples/`. Bot básico, sharding, componentes, webhooks. Código que funciona copiado e colado.
+There are also practical examples in `examples/`. Basic bot, sharding, components, webhooks. Copy-paste code that works.
 
-## Migração v1 pra v2
+## Migration v1 to v2
 
-Se você usou a v1, a v2 quebrou algumas coisas. A gente não se desculpa por isso. A v1 tinha gambiarras que a gente não queria manter.
+If you used v1, v2 broke some things. We’re not apologizing for it. v1 had hacks we didn’t want to keep.
 
-O Client agora usa GatewayManager internamente. Se você criava GatewayClient separado, agora passa as opções direto pro Client. O RestClient mudou de lugar. Alguns managers ganharam métodos novos e perderam outros.
+Client now uses GatewayManager internally. If you used to create GatewayClient separately, now you pass the options directly to Client. RestClient moved. Some managers gained new methods and lost others.
 
-O guia completo de migração tá em MIGRATION.md. Leia antes de atualizar seu bot em produção.
+The full migration guide is in MIGRATION.md. Read it before updating your production bot.
 
-## Instalação
+## Installation
 
 npm install fluxer.js-sdk
 
-Precisa de Node 18+. A gente usa fetch nativo, WebSocket nativo (com polyfill pros casos raros), e outras APIs modernas. Se você tá no Node 16 ainda, a hora de atualizar é agora.
+Requires Node 18+. We use native fetch, native WebSocket (with polyfill for rare cases), and other modern APIs. If you’re still on Node 16, now is the time to upgrade.
 
-## Licença
+## License
 
-MIT. Faz o que quiser. Só não vem cobrar suporte depois.
+MIT. Do whatever you want. Just don’t come asking for support later.
 
 ---
 
-Fluxer não é Discord. Discord é marca registrada de outra empresa. A gente só implementa uma API parecida porque ela é boa e faz sentido. Se o Discord processar, a gente diz que foi sem querer.
+Fluxer is not Discord. Discord is a registered trademark of another company. We just implement a similar API because it’s good and makes sense. If Discord sues, we’ll say it was accidental.
