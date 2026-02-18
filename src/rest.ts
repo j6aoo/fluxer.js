@@ -1,4 +1,4 @@
-import { BASE_URL, API_VERSION } from './consts';
+import { API_VERSION } from './consts';
 import { FluxerAPIError, FluxerRateLimitError } from './errors';
 import { RateLimitManager } from './rest/RateLimitManager';
 import { EventEmitter } from 'node:events';
@@ -18,9 +18,12 @@ export interface RequestOptions extends RequestInit {
 }
 
 export interface FileData {
-    name: string;
+    /** The file blob/buffer data */
     file: Blob | Buffer | Uint8Array;
-    filename?: string;
+    /** The filename to use for this file */
+    filename: string;
+    /** Optional description for the attachment */
+    description?: string;
 }
 
 export interface InternalResponse<T> {
@@ -42,8 +45,9 @@ export class RestClient extends EventEmitter {
         super();
         this.token = options.token;
         this.version = options.version || API_VERSION;
-        this.baseURL = options.baseURL || BASE_URL;
-        this.userAgent = options.userAgent || `fluxer.js/1.0.0 (Node.js ${process.version})`;
+        this.baseURL = options.baseURL || 'https://api.fluxer.app/v1';
+        // User-Agent format: ApplicationName (URL, Version)
+        this.userAgent = options.userAgent || `fluxer.js (https://github.com/fluxerapp/fluxer.js, 1.0.0)`;
         this.retries = options.retries ?? 3;
         this.rateLimitManager = new RateLimitManager(this);
     }
@@ -53,9 +57,23 @@ export class RestClient extends EventEmitter {
         return this.token;
     }
 
+    /** Build the full API URL with version prefix */
+    private buildURL(endpoint: string): URL {
+        const base = this.baseURL.replace(/\/$/, '');
+        const baseHasVersion = base.endsWith(`/${this.version}`);
+        const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+        const versionedEndpoint = baseHasVersion
+            ? normalizedEndpoint
+            : endpoint.startsWith(`/${this.version}/`)
+                ? endpoint
+                : `/${this.version}${normalizedEndpoint}`;
+        return new URL(`${base}${versionedEndpoint}`);
+    }
+
     public async makeRequest<T>(endpoint: string, options: RequestOptions = {}): Promise<InternalResponse<T>> {
         const method = (options.method || 'GET').toUpperCase();
-        const url = new URL(`${this.baseURL}${endpoint}`);
+        const url = this.buildURL(endpoint);
+        const FormDataCtor = globalThis.FormData || require('form-data');
 
         if (options.query) {
             Object.entries(options.query).forEach(([key, value]) => {
@@ -66,33 +84,49 @@ export class RestClient extends EventEmitter {
         }
 
         const authHeader = this.token.startsWith('Bot ') ? this.token : `Bot ${this.token}`;
-        const headers: Record<string, string> = {
-            'Authorization': authHeader,
-            'User-Agent': this.userAgent,
-            ...(options.headers as Record<string, string>),
-        };
+        const headers = new Headers(options.headers as any);
+        headers.set('Authorization', authHeader);
+        headers.set('User-Agent', this.userAgent);
 
         if (options.reason) {
-            headers['X-Audit-Log-Reason'] = encodeURIComponent(options.reason);
+            headers.set('X-Audit-Log-Reason', encodeURIComponent(options.reason));
         }
 
         let body: any = options.body;
 
         if (options.files && options.files.length > 0) {
-            const formData = new FormData();
+            const formData = new FormDataCtor();
 
-            for (let i = 0; i < options.files.length; i++) {
-                const file = options.files[i];
+            // Build attachments metadata array for payload_json
+            const attachments = options.files.map((file, index) => ({
+                id: index,
+                filename: file.filename,
+                description: file.description,
+            }));
+
+            const fileBlobs = await Promise.all(options.files.map(async (file, index) => {
                 const raw = file.file;
+                const isBuffer = typeof Buffer !== 'undefined' && Buffer.isBuffer(raw);
                 let blob: Blob;
                 if (raw instanceof Blob) {
                     blob = raw;
-                } else if (Buffer.isBuffer(raw)) {
+                } else if (isBuffer) {
                     blob = new Blob([new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength) as any]);
                 } else {
                     blob = new Blob([raw as any]);
                 }
-                formData.append(`files[${i}]`, blob, file.filename || file.name);
+                return { index, file, blob };
+            }));
+
+            for (const { index, file, blob } of fileBlobs) {
+                formData.append(`files[${index}]`, blob, file.filename);
+            }
+
+            // Merge attachments into payload body if body exists
+            if (body && typeof body === 'object') {
+                body = { ...body, attachments };
+            } else {
+                body = { attachments };
             }
 
             if (body && typeof body === 'object') {
@@ -100,8 +134,8 @@ export class RestClient extends EventEmitter {
             }
 
             body = formData;
-        } else if (body && typeof body === 'object' && !(body instanceof FormData) && !(body instanceof URLSearchParams) && !(body instanceof Blob) && !ArrayBuffer.isView(body)) {
-            headers['Content-Type'] = 'application/json';
+        } else if (body && typeof body === 'object' && !(body instanceof FormDataCtor) && !(body instanceof URLSearchParams) && !(body instanceof Blob) && !ArrayBuffer.isView(body)) {
+            headers.set('Content-Type', 'application/json');
             body = JSON.stringify(body);
         }
 
@@ -112,6 +146,21 @@ export class RestClient extends EventEmitter {
         };
 
         const response = await fetch(url.toString(), fetchOptions);
+
+        const globalHeader = response.headers.get('x-ratelimit-global') || response.headers.get('X-RateLimit-Global');
+        if (globalHeader) {
+            const globalRemaining = Number(globalHeader);
+            if (Number.isFinite(globalRemaining)) {
+                this.rateLimitManager.globalRemaining = globalRemaining;
+            } else if (globalHeader.toLowerCase() === 'true') {
+                this.rateLimitManager.globalRemaining = 0;
+            }
+
+            const globalReset = response.headers.get('x-ratelimit-reset') || response.headers.get('X-RateLimit-Reset');
+            if (globalReset) {
+                this.rateLimitManager.globalReset = parseFloat(globalReset) * 1000;
+            }
+        }
 
         let data: any;
         if (response.status !== 204) {
@@ -126,10 +175,25 @@ export class RestClient extends EventEmitter {
             }
         }
 
-        if (!response.ok && response.status !== 429) {
-            const code = data?.code || 'UNKNOWN';
+        // Handle rate limiting
+        if (response.status === 429) {
+            const retryAfter = parseInt(response.headers.get('retry-after') || response.headers.get('Retry-After') || '0', 10) * 1000;
+            throw new FluxerRateLimitError(retryAfter, endpoint, method, response.headers);
+        }
+
+        // Handle API errors
+        if (!response.ok) {
+            // API returns error code as string (e.g., "UNKNOWN_USER", "INVALID_FORM_BODY")
+            const code = data?.code || 'UNKNOWN_ERROR';
             const message = data?.message || `Request failed with status ${response.status}`;
-            throw new FluxerAPIError(message, response.status, code, endpoint, method);
+            const error = new FluxerAPIError(message, response.status, code, endpoint, method);
+            
+            // Attach validation errors if present (INVALID_FORM_BODY)
+            if (data?.errors && Array.isArray(data.errors)) {
+                (error as any).errors = data.errors;
+            }
+            
+            throw error;
         }
 
         return {

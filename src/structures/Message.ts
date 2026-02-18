@@ -4,6 +4,7 @@ import { User } from './User';
 import { Channel } from './Channel';
 import { getCreationDate, resolveEmoji } from '../util';
 import { ReactionManager } from '../managers/ReactionManager';
+import { MessageReaction } from './MessageReaction';
 
 export interface MessageFetchOptions {
     limit?: number;
@@ -20,6 +21,8 @@ export interface MessageCreateData {
     tts?: boolean;
     flags?: number;
 }
+
+export type MessagePayload = MessageCreateData;
 
 export class Message {
     public readonly client: Client;
@@ -41,7 +44,7 @@ export class Message {
     public webhookId: string | null;
     public type: number;
     public flags: number;
-    public referencedMessage: Message | null;
+    public referencedMessageId: string | null;
     public nonce: string | number | null;
 
     constructor(client: Client, data: MessageData) {
@@ -69,9 +72,8 @@ export class Message {
         this.webhookId = data.webhook_id || null;
         this.type = data.type;
         this.flags = data.flags || 0;
-        this.referencedMessage = data.referenced_message
-            ? new Message(client, data.referenced_message)
-            : null;
+        // Store only the ID to avoid circular reference and stack overflow
+        this.referencedMessageId = data.referenced_message?.id || data.message_reference?.message_id || null;
         this.nonce = data.nonce ?? null;
     }
 
@@ -79,12 +81,16 @@ export class Message {
         return getCreationDate(this.id);
     }
 
+    get editedAt(): Date | null {
+        return this.editedTimestamp;
+    }
+
     get url(): string {
         return `https://fluxer.app/channels/${this.guildId || '@me'}/${this.channelId}/${this.id}`;
     }
 
     /** Reply to this message */
-    async reply(content: string | MessageCreateData): Promise<Message> {
+    async reply(content: string | MessagePayload): Promise<Message> {
         const body: MessageCreateData = typeof content === 'string'
             ? { content, message_reference: { message_id: this.id } }
             : { ...content, message_reference: { message_id: this.id } };
@@ -119,10 +125,16 @@ export class Message {
     }
 
     /** React to this message */
-    async react(emoji: string | any): Promise<void> {
+    async react(emoji: string): Promise<void> {
         const resolved = resolveEmoji(emoji);
         const encoded = encodeURIComponent(resolved);
         await this.client.rest.put(`/channels/${this.channelId}/messages/${this.id}/reactions/${encoded}/@me`);
+    }
+
+    /** Remove a reaction from this message */
+    async removeReaction(emoji: string, userId?: string): Promise<void> {
+        const resolved = resolveEmoji(emoji);
+        await this.reactions.remove(resolved, userId);
     }
 
     /** Remove own reaction */
@@ -153,6 +165,21 @@ export class Message {
         await this.reactions.removeAll();
     }
 
+    /** Fetch all reactions for this message */
+    async fetchReactions(): Promise<MessageReaction[]> {
+        const reactions = await this.reactions.fetch();
+        return reactions.toArray();
+    }
+
+    /** Fetch the referenced message (reply) if any */
+    async fetchReferencedMessage(): Promise<Message | null> {
+        if (!this.referencedMessageId) return null;
+        const data = await this.client.rest.get<MessageData>(
+            `/channels/${this.channelId}/messages/${this.referencedMessageId}`,
+        );
+        return new Message(this.client, data);
+    }
+
     toString(): string {
         return this.content;
     }
@@ -175,8 +202,8 @@ export class Message {
                 count: r.count,
                 me: r.me,
                 emoji: {
-                    id: r.emoji.id || undefined,
-                    name: r.emoji.name || undefined,
+                    id: r.emoji.id ?? null,
+                    name: r.emoji.name ?? null,
                     animated: r.emoji.animated
                 }
             })),
@@ -184,6 +211,9 @@ export class Message {
             webhook_id: this.webhookId || undefined,
             type: this.type,
             flags: this.flags,
+            message_reference: this.referencedMessageId 
+                ? { message_id: this.referencedMessageId, channel_id: this.channelId, guild_id: this.guildId || undefined }
+                : undefined,
         };
     }
 }

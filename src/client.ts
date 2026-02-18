@@ -5,6 +5,9 @@ import { ChannelManager } from './managers/ChannelManager';
 import { UserManager } from './managers/UserManager';
 import { GuildManager } from './managers/GuildManager';
 import { WebhookManager } from './managers/WebhookManager';
+import { InviteManager } from './managers/InviteManager';
+import { RelationshipManager } from './managers/RelationshipManager';
+import { MessageManager } from './managers/MessageManager';
 import { Message } from './structures/Message';
 import { MessageReaction } from './structures/MessageReaction';
 import { ReactionEmoji } from './structures/ReactionEmoji';
@@ -15,6 +18,7 @@ import { User } from './structures/User';
 import { Presence } from './structures/Presence';
 import { VoiceState } from './structures/VoiceState';
 import { FluxerError } from './errors';
+import type { Emoji, GatewayPayload, Guild as GuildData, GuildMember as GuildMemberData, User as UserData } from './types';
 
 export interface ClientOptions {
     token: string;
@@ -28,13 +32,49 @@ export interface ClientOptions {
     totalShards?: number;
 }
 
+interface ShardReadyData {
+    user: UserData;
+    guilds?: GuildData[];
+    shard?: [number, number];
+    session_id?: string;
+    resume_gateway_url?: string;
+}
+
+interface ShardDispatchData {
+    event: GatewayDispatchEvents;
+    data: Record<string, unknown>;
+}
+
+interface MessageReactionAddData {
+    message_id: string;
+    channel_id: string;
+    user_id: string;
+    guild_id?: string;
+    member?: GuildMemberData;
+    emoji: Emoji;
+}
+
+interface MessageReactionRemoveData {
+    message_id: string;
+    channel_id: string;
+    user_id: string;
+    guild_id?: string;
+    emoji: Emoji;
+}
+
+interface VoiceServerUpdateData {
+    token: string;
+    guild_id: string;
+    endpoint: string | null;
+}
+
 export interface ClientEvents {
     ready: [user: User];
-    shardReady: [shardId: number, data: any];
+    shardReady: [shardId: number, data: ShardReadyData];
     shardResume: [shardId: number];
     shardDisconnect: [shardId: number, code: number];
     shardError: [shardId: number, error: Error];
-    shardDispatch: [shardId: number, event: string, data: any];
+    shardDispatch: [shardId: number, event: ShardDispatchData['event'], data: ShardDispatchData['data']];
     messageCreate: [message: Message];
     messageUpdate: [message: Message];
     messageDelete: [data: { id: string; channel_id: string; guild_id?: string }];
@@ -44,19 +84,19 @@ export interface ClientEvents {
     guildDelete: [data: { id: string; unavailable?: boolean }];
     guildMemberAdd: [member: GuildMember];
     guildMemberUpdate: [member: GuildMember];
-    guildMemberRemove: [data: { guild_id: string; user: any }];
+    guildMemberRemove: [data: { guild_id: string; user: UserData }];
     channelCreate: [channel: Channel];
     channelUpdate: [channel: Channel];
     channelDelete: [channel: Channel];
     typingStart: [data: { channel_id: string; guild_id?: string; user_id: string; timestamp: number }];
     presenceUpdate: [presence: Presence];
     voiceStateUpdate: [voiceState: VoiceState];
-    voiceServerUpdate: [data: any];
-    messageReactionAdd: [data: any];
-    messageReactionRemove: [data: any];
+    voiceServerUpdate: [data: VoiceServerUpdateData];
+    messageReactionAdd: [reaction: MessageReaction, user: User];
+    messageReactionRemove: [reaction: MessageReaction | MessageReactionRemoveData, userId: string];
     error: [error: Error];
     debug: [message: string];
-    raw: [payload: any];
+    raw: [payload: GatewayPayload];
     disconnected: [code: number];
 }
 
@@ -65,12 +105,18 @@ export class Client extends EventEmitter {
     public readonly rest: RestClient;
     public readonly gateway: GatewayManager;
     public readonly channels: ChannelManager;
+    public readonly messages: MessageManager;
     public readonly users: UserManager;
     public readonly guilds: GuildManager;
     public readonly webhooks: WebhookManager;
+    public readonly invites: InviteManager;
+    public readonly relationships: RelationshipManager;
     public user: User | null = null;
     public readyAt: Date | null = null;
     private _ready = false;
+    private _shardsReady = 0;
+    private _totalShards = 1;
+    private _shardOptions: ClientOptions;
 
     constructor(options: ClientOptions) {
         super();
@@ -80,6 +126,18 @@ export class Client extends EventEmitter {
         }
 
         this.token = options.token;
+        this._shardOptions = options;
+
+        // Calculate total shards
+        if (options.shards === 'auto') {
+            this._totalShards = 1; // Will be determined later
+        } else if (typeof options.shards === 'number') {
+            this._totalShards = options.shards;
+        } else if (options.shardList) {
+            this._totalShards = options.shardList.length;
+        } else if (options.totalShards) {
+            this._totalShards = options.totalShards;
+        }
 
         this.rest = new RestClient({
             token: this.token,
@@ -97,25 +155,26 @@ export class Client extends EventEmitter {
         });
 
         this.channels = new ChannelManager(this);
+        this.messages = new MessageManager(this, { maxSize: options.messageCacheMaxSize });
         this.users = new UserManager(this);
         this.guilds = new GuildManager(this);
         this.webhooks = new WebhookManager(this);
+        this.invites = new InviteManager(this);
+        this.relationships = new RelationshipManager(this);
 
         this._setupGatewayListeners();
     }
 
     private _setupGatewayListeners(): void {
         // Forward manager events
-        this.gateway.on('shardReady', (id, data) => {
+        this.gateway.on('shardReady', (id, data: ShardReadyData) => {
             this.emit('shardReady', id, data);
+            this._shardsReady++;
             
             // First shard ready defines the client user
-            if (!this.user && data.user) {
+            if ((!this.user || data.shard?.[0] === 0) && data.user) {
                 this.user = new User(this, data.user);
                 this.users._add(data.user);
-                this.readyAt = new Date();
-                this._ready = true;
-                this.emit('ready', this.user);
             }
 
             if (data.guilds && Array.isArray(data.guilds)) {
@@ -124,6 +183,13 @@ export class Client extends EventEmitter {
                         this.guilds._add(guildData);
                     }
                 }
+            }
+
+            // Only emit ready when ALL shards are ready
+            if (this._shardsReady >= this._totalShards && !this._ready) {
+                this.readyAt = new Date();
+                this._ready = true;
+                this.emit('ready', this.user);
             }
         });
 
@@ -137,7 +203,32 @@ export class Client extends EventEmitter {
         });
     }
 
-    private _handleDispatch(event: string, data: any): void {
+    private _handleDispatch(event: GatewayDispatchEvents, data: any): void {
+        const listenerEventMap: Partial<Record<GatewayDispatchEvents, keyof ClientEvents>> = {
+            [GatewayDispatchEvents.MessageCreate]: 'messageCreate',
+            [GatewayDispatchEvents.MessageUpdate]: 'messageUpdate',
+            [GatewayDispatchEvents.MessageDelete]: 'messageDelete',
+            [GatewayDispatchEvents.MessageDeleteBulk]: 'messageDeleteBulk',
+            [GatewayDispatchEvents.GuildCreate]: 'guildCreate',
+            [GatewayDispatchEvents.GuildUpdate]: 'guildUpdate',
+            [GatewayDispatchEvents.GuildDelete]: 'guildDelete',
+            [GatewayDispatchEvents.GuildMemberAdd]: 'guildMemberAdd',
+            [GatewayDispatchEvents.GuildMemberUpdate]: 'guildMemberUpdate',
+            [GatewayDispatchEvents.GuildMemberRemove]: 'guildMemberRemove',
+            [GatewayDispatchEvents.ChannelCreate]: 'channelCreate',
+            [GatewayDispatchEvents.ChannelUpdate]: 'channelUpdate',
+            [GatewayDispatchEvents.ChannelDelete]: 'channelDelete',
+            [GatewayDispatchEvents.TypingStart]: 'typingStart',
+            [GatewayDispatchEvents.PresenceUpdate]: 'presenceUpdate',
+            [GatewayDispatchEvents.VoiceStateUpdate]: 'voiceStateUpdate',
+            [GatewayDispatchEvents.VoiceServerUpdate]: 'voiceServerUpdate',
+            [GatewayDispatchEvents.MessageReactionAdd]: 'messageReactionAdd',
+            [GatewayDispatchEvents.MessageReactionRemove]: 'messageReactionRemove',
+        };
+
+        const listenerEvent = listenerEventMap[event];
+        if (listenerEvent && this.listenerCount(listenerEvent) === 0) return;
+
         switch (event) {
             case GatewayDispatchEvents.MessageCreate: {
                 const message = new Message(this, data);
@@ -148,13 +239,24 @@ export class Client extends EventEmitter {
             case GatewayDispatchEvents.MessageUpdate: {
                 if (data.author) {
                     const message = new Message(this, data);
+                    // Update cache if channel has a message manager
+                    const channel = this.channels.cache.get(data.channel_id);
+                    if (channel && (channel as any).messages) {
+                        (channel as any).messages._add(data);
+                    }
                     this.emit('messageUpdate', message);
                 }
                 break;
             }
-            case GatewayDispatchEvents.MessageDelete:
+            case GatewayDispatchEvents.MessageDelete: {
+                // Remove from cache if exists
+                const channel = this.channels.cache.get(data.channel_id);
+                if (channel && (channel as any).messages) {
+                    (channel as any).messages._remove(data.id);
+                }
                 this.emit('messageDelete', data);
                 break;
+            }
             case GatewayDispatchEvents.MessageDeleteBulk:
                 this.emit('messageDeleteBulk', data);
                 break;
@@ -226,7 +328,11 @@ export class Client extends EventEmitter {
                 break;
             }
             case GatewayDispatchEvents.VoiceServerUpdate:
-                this.emit('voiceServerUpdate', data);
+                this.emit('voiceServerUpdate', {
+                    token: data.token,
+                    guild_id: data.guild_id,
+                    endpoint: data.endpoint ?? null,
+                });
                 break;
             case GatewayDispatchEvents.TypingStart:
                 this.emit('typingStart', data);
@@ -240,18 +346,25 @@ export class Client extends EventEmitter {
         }
     }
 
-    private _handleReactionAdd(data: any): void {
+    private _handleReactionAdd(data: MessageReactionAddData): void {
         const channel = this.channels.cache.get(data.channel_id);
         const message = (channel as any)?.messages?.cache?.get(data.message_id);
+        const user = this.users._add(data.member?.user || ({ id: data.user_id } as UserData));
         if (message) {
             const reaction = message.reactions._add({
                 count: 1,
                 me: data.user_id === this.user?.id,
                 emoji: data.emoji
             });
-            this.emit('messageReactionAdd', reaction, this.users._add(data.member?.user || { id: data.user_id }));
+            this.emit('messageReactionAdd', reaction, user);
         } else {
-            this.emit('messageReactionAdd', data);
+            const stubMessage = ({ id: data.message_id, channelId: data.channel_id, client: this } as unknown) as Message;
+            const reaction = new MessageReaction(this, {
+                count: 1,
+                me: data.user_id === this.user?.id,
+                emoji: data.emoji,
+            }, stubMessage);
+            this.emit('messageReactionAdd', reaction, user);
         }
     }
 

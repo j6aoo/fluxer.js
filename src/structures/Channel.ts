@@ -12,19 +12,19 @@ import {
 
 export function createChannel(client: Client, data: ChannelData): BaseChannel {
     switch (data.type) {
-        case ChannelTypes.GuildText:
-        case ChannelTypes.GuildAnnouncement:
+        case ChannelTypes.GUILD_TEXT:
+        case ChannelTypes.GUILD_ANNOUNCEMENT:
             return new TextChannel(client, data);
-        case ChannelTypes.GuildVoice:
-        case ChannelTypes.GuildStageVoice:
+        case ChannelTypes.GUILD_VOICE:
+        case ChannelTypes.GUILD_STAGE_VOICE:
             return new VoiceChannel(client, data);
         case ChannelTypes.DM:
             return new DMChannel(client, data);
-        case ChannelTypes.GuildCategory:
+        case ChannelTypes.GUILD_CATEGORY:
             return new CategoryChannel(client, data);
-        case ChannelTypes.PublicThread:
-        case ChannelTypes.PrivateThread:
-        case ChannelTypes.AnnouncementThread:
+        case ChannelTypes.PUBLIC_THREAD:
+        case ChannelTypes.PRIVATE_THREAD:
+        case ChannelTypes.ANNOUNCEMENT_THREAD:
             return new ThreadChannel(client, data);
         default:
             return new TextChannel(client, data); 
@@ -42,4 +42,3 @@ export {
 
 /** @deprecated Use subclasses or createChannel */
 export class Channel extends BaseChannel {}
-

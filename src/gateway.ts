@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import zlib from 'zlib';
 import { EventEmitter } from 'events';
 import { GATEWAY_URL } from './consts';
 import { FluxerGatewayError } from './errors';
@@ -61,6 +62,8 @@ export class GatewayClient extends EventEmitter {
     private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
     private lastHeartbeatSent: number = 0;
     private lastHeartbeatAck: number = 0;
+    private lastPing: number = 0;
+    private _firstHeartbeatTimeout: NodeJS.Timeout | null = null;
 
     constructor(options: GatewayClientOptions) {
         super();
@@ -76,8 +79,18 @@ export class GatewayClient extends EventEmitter {
         if (this.destroyed) return;
         if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
 
-        const gatewayUrl = this.resumeGatewayUrl || this.url;
+        const gatewayUrl = this.getGatewayUrl();
         this.emit('debug', `[Gateway] Connecting to ${gatewayUrl}`);
+
+        // Clean up old WebSocket to prevent memory leaks
+        if (this.ws) {
+            this.ws.removeAllListeners();
+            try {
+                this.ws.terminate();
+            } catch {
+                // Ignore terminate errors
+            }
+        }
 
         this.ws = new WebSocket(gatewayUrl);
 
@@ -87,14 +100,9 @@ export class GatewayClient extends EventEmitter {
         });
 
         this.ws.on('message', (data: WebSocket.Data) => {
-            let payload;
-            try {
-                payload = JSON.parse(data.toString());
-            } catch (err) {
-                this.emit('error', new FluxerGatewayError('Failed to parse gateway payload', 0));
-                return;
-            }
-            this.handlePayload(payload);
+            const parsed = this.parsePayload(data);
+            if (!parsed) return;
+            this.handlePayload(parsed);
         });
 
         this.ws.on('close', (code: number, reason: Buffer) => {
@@ -170,6 +178,9 @@ export class GatewayClient extends EventEmitter {
             case GatewayOpCodes.HeartbeatAck:
                 this.heartbeatAcked = true;
                 this.lastHeartbeatAck = Date.now();
+                if (this.lastHeartbeatSent > 0) {
+                    this.lastPing = this.lastHeartbeatAck - this.lastHeartbeatSent;
+                }
                 this.emit('debug', '[Gateway] Heartbeat acknowledged');
                 break;
 
@@ -204,28 +215,38 @@ export class GatewayClient extends EventEmitter {
         this.stopHeartbeat();
         this.heartbeatAcked = true;
 
-        // Send first heartbeat after jitter
+        this.emit('debug', `[Gateway] Starting heartbeat every ${interval}ms`);
+
+        // Send first heartbeat after jitter, then start the interval
         const jitter = Math.random();
-        setTimeout(() => {
+        const firstHeartbeatTimeout = setTimeout(() => {
             this.sendHeartbeat();
+            
+            // Start the interval only after the first heartbeat is sent
+            this.heartbeatInterval = setInterval(() => {
+                if (!this.heartbeatAcked) {
+                    this.emit('debug', '[Gateway] Heartbeat not acknowledged, reconnecting...');
+                    this.reconnect();
+                    return;
+                }
+                this.heartbeatAcked = false;
+                this.sendHeartbeat();
+            }, interval);
         }, interval * jitter);
 
-        this.emit('debug', `[Gateway] Starting heartbeat every ${interval}ms`);
-        this.heartbeatInterval = setInterval(() => {
-            if (!this.heartbeatAcked) {
-                this.emit('debug', '[Gateway] Heartbeat not acknowledged, reconnecting...');
-                this.reconnect();
-                return;
-            }
-            this.heartbeatAcked = false;
-            this.sendHeartbeat();
-        }, interval);
+        // Store the timeout so it can be cleared if needed
+        this._firstHeartbeatTimeout = firstHeartbeatTimeout;
     }
 
     private stopHeartbeat(): void {
         if (this.heartbeatInterval) {
             clearInterval(this.heartbeatInterval);
             this.heartbeatInterval = null;
+        }
+        // Clear the first heartbeat timeout if it exists
+        if (this._firstHeartbeatTimeout) {
+            clearTimeout(this._firstHeartbeatTimeout);
+            this._firstHeartbeatTimeout = null;
         }
     }
 
@@ -237,7 +258,7 @@ export class GatewayClient extends EventEmitter {
     private identify(): void {
         const payload = {
             token: this.token,
-            intents: Number(this.intents),
+            intents: typeof this.intents === 'bigint' ? Number(this.intents) : this.intents,
             properties: {
                 os: process.platform,
                 browser: 'fluxer.js',
@@ -268,7 +289,7 @@ export class GatewayClient extends EventEmitter {
 
     private reconnect(): void {
         this.closeWebSocket(4000);
-        this.connect();
+        this.attemptReconnect();
     }
 
     private attemptReconnect(): void {
@@ -295,6 +316,31 @@ export class GatewayClient extends EventEmitter {
                 this.connect();
             }
         }, delay);
+    }
+
+    private getGatewayUrl(): string {
+        const baseUrl = this.resumeGatewayUrl || this.url;
+        if (!this.compress) return baseUrl;
+
+        const separator = baseUrl.includes('?') ? '&' : '?';
+        if (baseUrl.includes('compress=')) return baseUrl;
+        return `${baseUrl}${separator}compress=zlib-stream`;
+    }
+
+    private parsePayload(data: WebSocket.Data): any | null {
+        try {
+            let content: string;
+            if (this.compress && Buffer.isBuffer(data)) {
+                content = zlib.inflateSync(data).toString();
+            } else {
+                content = data.toString();
+            }
+            return JSON.parse(content);
+        } catch (err) {
+            this.emit('error', new Error('Invalid JSON received'));
+            this.ws?.close(1002, 'Invalid JSON');
+            return null;
+        }
     }
 
     private closeWebSocket(code: number = 1000): void {
@@ -378,6 +424,6 @@ export class GatewayClient extends EventEmitter {
 
     /** Get ping (not directly available, tracked via heartbeat timing) */
     public get ping(): number {
-        return this.lastHeartbeatAck - this.lastHeartbeatSent;
+        return this.lastPing;
     }
 }

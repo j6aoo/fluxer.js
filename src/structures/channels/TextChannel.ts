@@ -5,7 +5,7 @@ import { MessageManager } from '../../managers/MessageManager';
 import { Message } from '../Message';
 import type { MessageCreateData, MessageFetchOptions } from '../Message';
 
-import { InviteManager, InviteCreateOptions } from '../../managers/InviteManager';
+import { InviteCreateOptions } from '../../managers/InviteManager';
 import { Invite } from '../Invite';
 
 export class TextChannel extends BaseChannel {
@@ -38,6 +38,16 @@ export class TextChannel extends BaseChannel {
         return new Message(this.client, data);
     }
 
+    /** Trigger typing indicator in this channel */
+    async sendTyping(): Promise<void> {
+        await this.client.rest.post(`/channels/${this.id}/typing`);
+    }
+
+    /** Acknowledge a message in this channel */
+    async ack(messageId: string): Promise<void> {
+        await this.client.rest.post(`/channels/${this.id}/ack`, { last_message_id: messageId });
+    }
+
     /** Fetch messages from this channel */
     async fetchMessages(options: MessageFetchOptions = {}): Promise<Message[]> {
         const query: Record<string, any> = {};
@@ -61,8 +71,24 @@ export class TextChannel extends BaseChannel {
     }
 
     /** Create a channel invite */
-    async createInvite(options: InviteCreateOptions = {}, reason?: string): Promise<Invite> {
-        return (this.client.channels.cache.get(this.id) as any)?.invites.create(options, reason);
+    async createInvite(options: InviteCreateOptions = {}): Promise<Invite> {
+        const body = {
+            max_age: options.maxAge,
+            max_uses: options.maxUses,
+            temporary: options.temporary,
+            unique: options.unique,
+            target_type: options.targetType,
+            target_user_id: options.targetUserId,
+            target_application_id: options.targetApplicationId,
+        };
+        const data = await this.client.rest.post(`/channels/${this.id}/invites`, body);
+        return new Invite(this.client, data);
+    }
+
+    /** Fetch channel invites */
+    async fetchInvites(): Promise<Invite[]> {
+        const data = await this.client.rest.get<any[]>(`/channels/${this.id}/invites`);
+        return data.map(inviteData => new Invite(this.client, inviteData));
     }
 
     /** Set rate limit per user */

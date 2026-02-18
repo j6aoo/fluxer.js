@@ -60,7 +60,7 @@ export class ReactionManager extends DataManager<string, MessageReaction, string
             count: 1, 
             me: true, 
             emoji: { 
-                id: emoji.includes(':') ? emojiId : undefined, 
+                id: emoji.includes(':') ? emojiId : null, 
                 name: emoji.includes(':') ? emoji.split(':')[0] : emoji 
             } 
         });

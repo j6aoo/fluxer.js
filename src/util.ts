@@ -1,5 +1,8 @@
 import { CDN_URL, STATIC_URL } from './consts';
+import type { ImageURLOptions } from './types';
 
+// Fluxer uses the same epoch as Discord for Snowflake IDs
+// This is the epoch from January 1, 2015 (Discord/Fluxer standard)
 export const FLUXER_EPOCH = 1420070400000n;
 
 export function snowflakeToTimestamp(snowflake: string): number {
@@ -14,13 +17,6 @@ export function timestampToSnowflake(timestamp: number): string {
 
 export function getCreationDate(snowflake: string): Date {
     return new Date(snowflakeToTimestamp(snowflake));
-}
-
-export interface ImageURLOptions {
-    size?: number;
-    format?: 'png' | 'jpeg' | 'webp' | 'gif';
-    quality?: 'high' | 'low' | 'lossless';
-    animated?: boolean;
 }
 
 function buildCDNUrl(path: string, options: ImageURLOptions = {}): string {
@@ -43,6 +39,13 @@ export function getUserAvatarUrl(userId: string, hash: string, options: ImageURL
         options = { ...options, format: 'gif' };
     }
     return buildCDNUrl(`avatars/${userId}/${hash}`, options);
+}
+
+export function getUserBannerUrl(userId: string, hash: string, options: ImageURLOptions = {}): string {
+    if (!options.format && hash.startsWith('a_')) {
+        options = { ...options, format: 'gif' };
+    }
+    return buildCDNUrl(`banners/${userId}/${hash}`, options);
 }
 
 export function getGuildIconUrl(guildId: string, hash: string, options: ImageURLOptions = {}): string {
@@ -80,3 +83,5 @@ export function resolveEmoji(emoji: any): string {
     if (emoji.id) return `${emoji.animated ? 'a:' : ''}${emoji.name}:${emoji.id}`;
     return emoji.name;
 }
+
+export type { ImageURLOptions } from './types';

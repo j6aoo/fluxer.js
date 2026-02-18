@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import zlib from 'zlib';
 import { EventEmitter } from 'events';
 import { GatewayOpCodes, GatewayDispatchEvents } from './GatewayEvents';
 import { FluxerGatewayError } from '../errors';
@@ -24,6 +25,7 @@ export class GatewayShard extends EventEmitter {
     private heartbeatAcked: boolean = true;
     private lastHeartbeatSent: number = 0;
     private lastHeartbeatAck: number = 0;
+    private lastPing: number = 0;
     
     private reconnectAttempts: number = 0;
     private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -41,7 +43,7 @@ export class GatewayShard extends EventEmitter {
         if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
 
         this.status = ShardStatus.Connecting;
-        const gatewayUrl = this.resumeGatewayUrl || this.manager.options.url || 'wss://gateway.fluxer.app';
+        const gatewayUrl = this.getGatewayUrl();
         this.emit('debug', `[Shard ${this.id}] Connecting to ${gatewayUrl}`);
 
         this.ws = new WebSocket(gatewayUrl);
@@ -52,14 +54,9 @@ export class GatewayShard extends EventEmitter {
         });
 
         this.ws.on('message', (data: WebSocket.Data) => {
-            let payload;
-            try {
-                payload = JSON.parse(data.toString());
-            } catch (err) {
-                this.emit('error', new FluxerGatewayError(`[Shard ${this.id}] Failed to parse gateway payload`, 0));
-                return;
-            }
-            this.handlePayload(payload);
+            const parsed = this.parsePayload(data);
+            if (!parsed) return;
+            this.handlePayload(parsed);
         });
 
         this.ws.on('close', (code: number, reason: Buffer) => {
@@ -132,6 +129,9 @@ export class GatewayShard extends EventEmitter {
             case GatewayOpCodes.HeartbeatAck:
                 this.heartbeatAcked = true;
                 this.lastHeartbeatAck = Date.now();
+                if (this.lastHeartbeatSent > 0) {
+                    this.lastPing = this.lastHeartbeatAck - this.lastHeartbeatSent;
+                }
                 break;
 
             case GatewayOpCodes.Reconnect:
@@ -144,7 +144,13 @@ export class GatewayShard extends EventEmitter {
                     this.sessionId = null;
                     this.sequence = null;
                 }
-                setTimeout(() => this.reconnect(), Math.floor(Math.random() * 4000) + 1000);
+                const delay = Math.floor(Math.random() * 4000) + 1000;
+                setTimeout(() => {
+                    if (!this.destroyed) {
+                        this.disconnect(1000);
+                        this.attemptReconnect();
+                    }
+                }, delay);
                 break;
             }
         }
@@ -153,7 +159,7 @@ export class GatewayShard extends EventEmitter {
     private identify(): void {
         const payload = {
             token: this.manager.options.token,
-            intents: Number(this.manager.options.intents),
+            intents: typeof this.manager.options.intents === 'bigint' ? Number(this.manager.options.intents) : this.manager.options.intents,
             properties: {
                 os: process.platform,
                 browser: 'fluxer.js',
@@ -213,7 +219,7 @@ export class GatewayShard extends EventEmitter {
 
     public reconnect(): void {
         this.disconnect(4000);
-        this.connect();
+        this.attemptReconnect();
     }
 
     private attemptReconnect(): void {
@@ -226,6 +232,31 @@ export class GatewayShard extends EventEmitter {
             this.reconnectTimeout = null;
             this.connect();
         }, delay);
+    }
+
+    private getGatewayUrl(): string {
+        const baseUrl = this.resumeGatewayUrl || this.manager.options.url || 'wss://gateway.fluxer.app';
+        if (!this.manager.options.compress) return baseUrl;
+
+        const separator = baseUrl.includes('?') ? '&' : '?';
+        if (baseUrl.includes('compress=')) return baseUrl;
+        return `${baseUrl}${separator}compress=zlib-stream`;
+    }
+
+    private parsePayload(data: WebSocket.Data): any | null {
+        try {
+            let content: string;
+            if (this.manager.options.compress && Buffer.isBuffer(data)) {
+                content = zlib.inflateSync(data).toString();
+            } else {
+                content = data.toString();
+            }
+            return JSON.parse(content);
+        } catch (err) {
+            this.emit('error', new Error('Invalid JSON received'));
+            this.ws?.close(1002, 'Invalid JSON');
+            return null;
+        }
     }
 
     public disconnect(code: number = 1000): void {
@@ -255,6 +286,6 @@ export class GatewayShard extends EventEmitter {
     }
 
     public get ping(): number {
-        return this.lastHeartbeatAck - this.lastHeartbeatSent;
+        return this.lastPing;
     }
 }

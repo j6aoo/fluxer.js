@@ -1,17 +1,33 @@
 import { Message } from '../structures/Message';
 import { Collection } from '../collections/Collection';
+import { LimitedCollection } from '../collections/LimitedCollection';
 import { DataManager } from './DataManager';
 import type { Client } from '../client';
 import { Message as MessageData } from '../types';
 import { PaginatedManager, PaginatedFetchOptions } from '../structures/Managers/PaginatedManager';
 
+export interface MessageManagerOptions {
+    maxSize?: number;
+}
+
 export class MessageManager extends PaginatedManager<string, Message, string> {
     public readonly channelId: string;
     protected _holds = Message;
+    public override readonly cache: LimitedCollection<string, Message>;
 
-    constructor(client: Client, channelId: string) {
+    constructor(client: Client, channelId: string, options?: MessageManagerOptions);
+    constructor(client: Client, options?: MessageManagerOptions);
+    constructor(client: Client, channelIdOrOptions?: string | MessageManagerOptions, options: MessageManagerOptions = {}) {
         super(client);
-        this.channelId = channelId;
+
+        if (typeof channelIdOrOptions === 'string') {
+            this.channelId = channelIdOrOptions;
+        } else {
+            this.channelId = '';
+            options = channelIdOrOptions ?? {};
+        }
+
+        this.cache = new LimitedCollection({ maxSize: options.maxSize });
     }
 
     /** Fetch a specific message by ID */

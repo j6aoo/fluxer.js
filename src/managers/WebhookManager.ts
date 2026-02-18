@@ -1,14 +1,18 @@
+import { BaseManager } from './BaseManager';
+import { Webhook } from '../structures/Webhook';
+import { Message } from '../structures/Message';
 import type { Client } from '../client';
+import type { WebhookData, Message as MessageData } from '../types';
 
-export interface WebhookData {
-    id: string;
-    type: number;
-    guild_id?: string;
-    channel_id: string;
+export interface WebhookCreateOptions {
     name: string;
-    avatar: string | null;
-    token?: string;
-    url?: string;
+    avatar?: string;
+}
+
+export interface WebhookEditOptions {
+    name?: string;
+    avatar?: string;
+    channel_id?: string;
 }
 
 export interface WebhookExecuteOptions {
@@ -16,43 +20,65 @@ export interface WebhookExecuteOptions {
     username?: string;
     avatar_url?: string;
     embeds?: any[];
-    wait?: boolean;
 }
 
-export class WebhookManager {
-    public readonly client: Client;
-
+export class WebhookManager extends BaseManager {
     constructor(client: Client) {
-        this.client = client;
-    }
-
-    /** Fetch a webhook by ID */
-    async fetch(webhookId: string): Promise<WebhookData> {
-        return this.client.rest.get<WebhookData>(`/webhooks/${webhookId}`);
+        super(client);
     }
 
     /** Create a webhook for a channel */
-    async create(channelId: string, data: { name: string; avatar?: string }): Promise<WebhookData> {
-        return this.client.rest.post<WebhookData>(`/channels/${channelId}/webhooks`, data);
+    async create(channelId: string, options: WebhookCreateOptions): Promise<Webhook> {
+        const data = await this.client.rest.post<WebhookData>(`/channels/${channelId}/webhooks`, options);
+        return new Webhook(this.client, data);
+    }
+
+    /** Fetch a webhook by ID */
+    async fetch(id: string): Promise<Webhook> {
+        const data = await this.client.rest.get<WebhookData>(`/webhooks/${id}`);
+        return new Webhook(this.client, data);
+    }
+
+    /** Fetch channel webhooks */
+    async fetchChannelWebhooks(channelId: string): Promise<Webhook[]> {
+        const data = await this.client.rest.get<WebhookData[]>(`/channels/${channelId}/webhooks`);
+        return data.map(webhook => new Webhook(this.client, webhook));
+    }
+
+    /** Fetch guild webhooks */
+    async fetchGuildWebhooks(guildId: string): Promise<Webhook[]> {
+        const data = await this.client.rest.get<WebhookData[]>(`/guilds/${guildId}/webhooks`);
+        return data.map(webhook => new Webhook(this.client, webhook));
     }
 
     /** Edit a webhook */
-    async edit(webhookId: string, data: Partial<{ name: string; avatar: string; channel_id: string }>, reason?: string): Promise<WebhookData> {
-        return this.client.rest.patch<WebhookData>(`/webhooks/${webhookId}`, data, { reason });
+    async edit(id: string, options: WebhookEditOptions): Promise<Webhook> {
+        const data = await this.client.rest.patch<WebhookData>(`/webhooks/${id}`, options);
+        return new Webhook(this.client, data);
     }
 
     /** Delete a webhook */
-    async delete(webhookId: string, reason?: string): Promise<void> {
-        await this.client.rest.delete(`/webhooks/${webhookId}`, { reason });
+    async delete(id: string): Promise<void> {
+        await this.client.rest.delete(`/webhooks/${id}`);
     }
 
     /** Execute a webhook (send message via webhook) */
-    async execute(webhookId: string, token: string, options: WebhookExecuteOptions): Promise<any> {
-        const query: Record<string, any> = {};
-        if (options.wait) query.wait = true;
+    async execute(webhookId: string, token: string, options: WebhookExecuteOptions, wait = false): Promise<Message | void> {
+        const query = wait ? { wait: true } : undefined;
+        const data = await this.client.rest.post<MessageData | void>(
+            `/webhooks/${webhookId}/${token}`,
+            options,
+            { query },
+        );
+        if (wait && data) return new Message(this.client, data as MessageData);
+    }
 
-        const { wait, ...body } = options;
-        return this.client.rest.post(`/webhooks/${webhookId}/${token}`, body, { query });
+    async executeGithub(webhookId: string, token: string, payload: unknown): Promise<void> {
+        await this.client.rest.post(`/webhooks/${webhookId}/${token}/github`, payload);
+    }
+
+    async executeSlack(webhookId: string, token: string, payload: unknown): Promise<void> {
+        await this.client.rest.post(`/webhooks/${webhookId}/${token}/slack`, payload);
     }
 
     /** Edit a webhook message */
@@ -63,15 +89,5 @@ export class WebhookManager {
     /** Delete a webhook message */
     async deleteMessage(webhookId: string, token: string, messageId: string): Promise<void> {
         await this.client.rest.delete(`/webhooks/${webhookId}/${token}/messages/${messageId}`);
-    }
-
-    /** Fetch channel webhooks */
-    async fetchChannelWebhooks(channelId: string): Promise<WebhookData[]> {
-        return this.client.rest.get<WebhookData[]>(`/channels/${channelId}/webhooks`);
-    }
-
-    /** Fetch guild webhooks */
-    async fetchGuildWebhooks(guildId: string): Promise<WebhookData[]> {
-        return this.client.rest.get<WebhookData[]>(`/guilds/${guildId}/webhooks`);
     }
 }

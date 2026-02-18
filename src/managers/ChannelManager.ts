@@ -1,7 +1,7 @@
 import { BaseChannel, createChannel, TextChannel, VoiceChannel, DMChannel, CategoryChannel, ThreadChannel } from '../structures/Channel';
 import { Message } from '../structures/Message';
 import { DataManager } from './DataManager';
-import { Channel as ChannelData, Message as MessageData } from '../types';
+import { Channel as ChannelData, Message as MessageData, RTCRegion } from '../types';
 
 export class ChannelManager extends DataManager<string, BaseChannel, string> {
     protected _holds = BaseChannel as any;
@@ -45,6 +45,34 @@ export class ChannelManager extends DataManager<string, BaseChannel, string> {
         return new Message(this.client, data);
     }
 
+    /** Trigger typing indicator */
+    async typing(channelId: string): Promise<void> {
+        await this.client.rest.post(`/channels/${channelId}/typing`);
+    }
+
+    /** Acknowledge a message */
+    async ackMessage(channelId: string, messageId: string, mentionCount?: number): Promise<void> {
+        const body = mentionCount !== undefined ? { mention_count: mentionCount } : undefined;
+        await this.client.rest.post(`/channels/${channelId}/messages/${messageId}/ack`, body);
+    }
+
+    /** Fetch RTC regions for a channel */
+    async getRTCRegions(channelId: string): Promise<RTCRegion[]> {
+        return this.client.rest.get<RTCRegion[]>(`/channels/${channelId}/regions`);
+    }
+
+    /** Bulk delete messages */
+    async bulkDelete(channelId: string, messageIds: string[]): Promise<void> {
+        if (messageIds.length === 0) return;
+        if (messageIds.length === 1) {
+            await this.client.rest.delete(`/channels/${channelId}/messages/${messageIds[0]}`);
+            return;
+        }
+        await this.client.rest.post(`/channels/${channelId}/messages/bulk-delete`, {
+            message_ids: messageIds,
+        });
+    }
+
     /** Delete a channel */
     async delete(channelId: string, reason?: string): Promise<void> {
         await this.client.rest.delete(`/channels/${channelId}`, { reason });
@@ -70,4 +98,3 @@ export class ChannelManager extends DataManager<string, BaseChannel, string> {
         return entry;
     }
 }
-

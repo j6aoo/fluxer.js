@@ -1,8 +1,13 @@
 import type { Client } from '../client';
 import { User as UserData } from '../types';
-import { getUserAvatarUrl, getDefaultAvatarUrl, getCreationDate } from '../util';
+import { getUserAvatarUrl, getUserBannerUrl, getDefaultAvatarUrl, getCreationDate, ImageURLOptions } from '../util';
 
 import { DMChannel } from './channels/DMChannel';
+import { Message, MessagePayload } from './Message';
+
+export interface UserProfile {
+    [key: string]: any;
+}
 
 export class User {
     public readonly client: Client;
@@ -44,21 +49,32 @@ export class User {
         return getCreationDate(this.id);
     }
 
-    avatarURL(options: { size?: number; format?: 'png' | 'jpeg' | 'webp' | 'gif' } = {}): string {
-        if (!this.avatar) return getDefaultAvatarUrl(this.id);
+    avatarURL(options: ImageURLOptions = {}): string | null {
+        if (!this.avatar) return null;
         return getUserAvatarUrl(this.id, this.avatar, options);
+    }
+
+    bannerURL(options: ImageURLOptions = {}): string | null {
+        if (!this.banner) return null;
+        return getUserBannerUrl(this.id, this.banner, options);
     }
 
     defaultAvatarURL(): string {
         return getDefaultAvatarUrl(this.id);
     }
 
-    displayAvatarURL(options: { size?: number; format?: 'png' | 'jpeg' | 'webp' | 'gif' } = {}): string {
-        return this.avatarURL(options);
+    displayAvatarURL(options: ImageURLOptions = {}): string {
+        return this.avatarURL(options) || this.defaultAvatarURL();
     }
 
     /** Create a DM channel with this user */
     async createDM(): Promise<DMChannel> {
+        // Check cache first to avoid unnecessary API calls
+        const cached = this.client.channels.cache.find(
+            ch => ch.type === 1 && (ch as DMChannel).recipient?.id === this.id
+        );
+        if (cached) return cached as DMChannel;
+
         const data = await this.client.rest.post<any>('/users/@me/channels', {
             recipient_id: this.id,
         });
@@ -66,14 +82,14 @@ export class User {
     }
 
     /** Send a DM to this user */
-    async send(content: string | object): Promise<any> {
+    async send(message: string | MessagePayload): Promise<Message> {
         const dmChannel = await this.createDM();
-        return dmChannel.send(content as any);
+        return dmChannel.send(message as any);
     }
 
     /** Fetch the full profile of this user */
-    async fetchProfile(): Promise<any> {
-        return this.client.rest.get(`/users/${this.id}/profile`);
+    async fetchProfile(): Promise<UserProfile> {
+        return this.client.rest.get<UserProfile>(`/users/${this.id}/profile`);
     }
 
     toString(): string {
@@ -85,11 +101,18 @@ export class User {
             id: this.id,
             username: this.username,
             discriminator: this.discriminator,
-            avatar: this.avatar || undefined,
-            banner: this.banner || undefined,
+            avatar: this.avatar,
+            banner: this.banner,
             bot: this.bot,
             system: this.system,
+            mfa_enabled: false,
+            accent_color: this.accentColor,
+            locale: 'en-US',
+            verified: false,
+            email: null,
             flags: this.flags,
+            premium_type: null,
+            public_flags: this.flags,
         };
     }
 }

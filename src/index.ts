@@ -36,7 +36,7 @@ export { DMChannel } from './structures/channels/DMChannel';
 export { CategoryChannel } from './structures/channels/CategoryChannel';
 export { ThreadChannel } from './structures/channels/ThreadChannel';
 
-export { Message, MessageFetchOptions, MessageCreateData } from './structures/Message';
+export { Message, MessageFetchOptions, MessageCreateData, MessagePayload } from './structures/Message';
 export { MessageReaction } from './structures/MessageReaction';
 export { ReactionEmoji } from './structures/ReactionEmoji';
 export { Guild } from './structures/Guild';
@@ -51,6 +51,8 @@ export { GuildEmojiRoleManager } from './structures/GuildEmojiRoleManager';
 export { Presence } from './structures/Presence';
 export { Activity } from './structures/Activity';
 export { VoiceState } from './structures/VoiceState';
+export { Relationship } from './structures/Relationship';
+export { Webhook } from './structures/Webhook';
 
 // Builders
 export { EmbedBuilder, Colors } from './builders/EmbedBuilder';
@@ -75,10 +77,11 @@ export { RoleManager } from './managers/RoleManager';
 export { GuildBanManager } from './managers/GuildBanManager';
 export { GuildMemberManager } from './managers/GuildMemberManager';
 export { InviteManager } from './managers/InviteManager';
+export { RelationshipManager } from './managers/RelationshipManager';
 export { GuildEmojiManager } from './managers/GuildEmojiManager';
 export { PresenceManager } from './managers/PresenceManager';
 export { VoiceStateManager } from './managers/VoiceStateManager';
-export type { WebhookData, WebhookExecuteOptions } from './managers/WebhookManager';
+export type { WebhookCreateOptions, WebhookEditOptions, WebhookExecuteOptions } from './managers/WebhookManager';
 
 // Collections
 export { Collection } from './collections/Collection';
@@ -117,8 +120,11 @@ export type {
     StickerItem,
     Sticker,
     ChannelMention,
+    RelationshipData,
+    WebhookData,
     GatewayPayload,
     GuildBan as GuildBanData,
+    ImageURLOptions,
 } from './types';
 
 // Constants
@@ -129,16 +135,28 @@ export { BitField } from './util/BitField';
 export { Permissions, PermissionString } from './util/Permissions';
 export { UserFlags } from './util/UserFlags';
 export { MessageFlags } from './util/MessageFlags';
-export { SnowflakeUtil } from './util/SnowflakeUtil';
+export { SnowflakeUtil, FLUXER_EPOCH } from './util/SnowflakeUtil';
 export { Pagination } from './util/Pagination';
 export { PaginatedManager, PaginatedFetchOptions } from './structures/Managers/PaginatedManager';
 export {
-    FLUXER_EPOCH,
+    CDN,
+    CDN_BASE,
+    STATIC_CDN_BASE,
+    avatarURL,
+    defaultAvatarURL,
+    guildIconURL,
+    guildBannerURL,
+    emojiURL,
+    stickerURL,
+    attachmentURL,
+} from './util/CDN';
+export {
     snowflakeToTimestamp,
     timestampToSnowflake,
     getCreationDate,
     getDefaultAvatarUrl,
     getUserAvatarUrl,
+    getUserBannerUrl,
     getGuildIconUrl,
     getGuildBannerUrl,
     getGuildSplashUrl,
@@ -146,7 +164,7 @@ export {
     getStickerUrl,
     resolveEmoji,
 } from './util';
-export type { ImageURLOptions } from './util';
 
 // Errors
 export { FluxerError, FluxerAPIError, FluxerRateLimitError, FluxerGatewayError } from './errors';
+export type { ValidationError } from './errors';

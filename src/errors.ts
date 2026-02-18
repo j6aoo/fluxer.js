@@ -5,29 +5,48 @@ export class FluxerError extends Error {
     }
 }
 
+export interface ValidationError {
+    path: string;
+    message: string;
+}
+
 export class FluxerAPIError extends Error {
     public status: number;
     public code: string;
     public endpoint: string;
     public method: string;
+    public errors?: ValidationError[];
 
-    constructor(message: string, status: number, code: string, endpoint: string, method: string) {
+    constructor(message: string, status: number, code: string, endpoint: string, method: string, errors?: ValidationError[]) {
         super(message);
         this.name = 'FluxerAPIError';
         this.status = status;
         this.code = code;
         this.endpoint = endpoint;
         this.method = method;
+        this.errors = errors;
     }
 }
 
 export class FluxerRateLimitError extends FluxerAPIError {
     public retryAfter: number;
+    public limit?: number;
+    public remaining?: number;
+    public resetAfter?: number;
+    public bucket?: string;
 
-    constructor(retryAfter: number, endpoint: string, method: string) {
+    constructor(retryAfter: number, endpoint: string, method: string, headers?: Headers) {
         super(`Rate limited. Retry after ${retryAfter}ms`, 429, 'RATE_LIMITED', endpoint, method);
         this.name = 'FluxerRateLimitError';
         this.retryAfter = retryAfter;
+        
+        // Extract rate limit headers if available
+        if (headers) {
+            this.limit = parseInt(headers.get('X-RateLimit-Limit') || '0', 10) || undefined;
+            this.remaining = parseInt(headers.get('X-RateLimit-Remaining') || '0', 10) || undefined;
+            this.resetAfter = parseInt(headers.get('X-RateLimit-Reset-After') || '0', 10) || undefined;
+            this.bucket = headers.get('X-RateLimit-Bucket') || undefined;
+        }
     }
 }
 

@@ -1,4 +1,5 @@
 import { getGuildBannerUrl, getGuildIconUrl, getGuildSplashUrl } from '../util';
+import type { ImageURLOptions } from '../types';
 
 export interface InviteGuildData {
     id: string;
@@ -35,17 +36,17 @@ export class InviteGuild {
         this.vanityUrlCode = data.vanity_url_code;
     }
 
-    iconURL(options: { size?: number; format?: 'png' | 'jpeg' | 'webp' | 'gif' } = {}): string | null {
+    iconURL(options: ImageURLOptions = {}): string | null {
         if (!this.icon) return null;
         return getGuildIconUrl(this.id, this.icon, options);
     }
 
-    bannerURL(options: { size?: number; format?: 'png' | 'jpeg' | 'webp' | 'gif' } = {}): string | null {
+    bannerURL(options: ImageURLOptions = {}): string | null {
         if (!this.banner) return null;
         return getGuildBannerUrl(this.id, this.banner, options);
     }
 
-    splashURL(options: { size?: number; format?: 'png' | 'jpeg' | 'webp' | 'gif' } = {}): string | null {
+    splashURL(options: ImageURLOptions = {}): string | null {
         if (!this.splash) return null;
         return getGuildSplashUrl(this.id, this.splash, options);
     }

@@ -2,7 +2,7 @@ import type { Client } from '../client';
 import { Guild as GuildData, Role as RoleData, Emoji as EmojiData, Channel as ChannelData, Snowflake } from '../types';
 import { createChannel } from './Channel';
 import { Collection } from '../collections/Collection';
-import { getGuildIconUrl, getGuildBannerUrl } from '../util';
+import { getGuildIconUrl, getGuildBannerUrl, ImageURLOptions } from '../util';
 import { GuildMemberManager } from '../managers/GuildMemberManager';
 import { RoleManager } from '../managers/RoleManager';
 import { ChannelManager } from '../managers/ChannelManager';
@@ -13,6 +13,8 @@ import { VoiceStateManager } from '../managers/VoiceStateManager';
 
 import { InviteManager } from '../managers/InviteManager';
 import { BaseChannel } from './channels';
+import { Invite } from './Invite';
+import type { WebhookData as Webhook } from '../types';
 
 export class Guild {
     public readonly client: Client;
@@ -45,7 +47,7 @@ export class Guild {
         }
         this.client = client;
         this.id = data.id;
-        this.invites = new InviteManager(client, this as any);
+        this.invites = new InviteManager(client);
 
         this.name = data.name || 'Unknown Guild';
         this.icon = data.icon || null;
@@ -92,12 +94,12 @@ export class Guild {
         return getCreationDate(this.id);
     }
 
-    iconURL(options: { size?: number; format?: 'png' | 'jpeg' | 'webp' | 'gif' } = {}): string | null {
+    iconURL(options: ImageURLOptions = {}): string | null {
         if (!this.icon) return null;
         return getGuildIconUrl(this.id, this.icon, options);
     }
 
-    bannerURL(options: { size?: number; format?: 'png' | 'jpeg' | 'webp' | 'gif' } = {}): string | null {
+    bannerURL(options: ImageURLOptions = {}): string | null {
         if (!this.banner) return null;
         return getGuildBannerUrl(this.id, this.banner, options);
     }
@@ -117,6 +119,16 @@ export class Guild {
     /** Leave this guild */
     async leave(): Promise<void> {
         await this.client.rest.delete(`/users/@me/guilds/${this.id}`);
+    }
+
+    /** Delete this guild */
+    async delete(password: string): Promise<void> {
+        await this.client.rest.delete(`/guilds/${this.id}`, { body: { password } as any });
+    }
+
+    /** Acknowledge this guild */
+    async ack(): Promise<void> {
+        await this.client.rest.post(`/guilds/${this.id}/ack`);
     }
 
     /** Fetch guild channels */
@@ -181,13 +193,14 @@ export class Guild {
     }
 
     /** Fetch guild invites */
-    async fetchInvites(): Promise<any[]> {
-        return this.client.rest.get(`/guilds/${this.id}/invites`);
+    async fetchInvites(): Promise<Invite[]> {
+        const data = await this.client.rest.get<any[]>(`/guilds/${this.id}/invites`);
+        return data.map(inviteData => new Invite(this.client, inviteData));
     }
 
     /** Fetch guild webhooks */
-    async fetchWebhooks(): Promise<any[]> {
-        return this.client.rest.get(`/guilds/${this.id}/webhooks`);
+    async fetchWebhooks(): Promise<Webhook[]> {
+        return this.client.rest.get<Webhook[]>(`/guilds/${this.id}/webhooks`);
     }
 
     /** Get guild emoji list */

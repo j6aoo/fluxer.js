@@ -8,11 +8,17 @@ export class EmbedBuilder {
     }
 
     setTitle(title: string): this {
+        if (title.length > 256) {
+            throw new RangeError('Embed title must be 256 or fewer characters');
+        }
         this.data.title = title;
         return this;
     }
 
     setDescription(description: string): this {
+        if (description.length > 4096) {
+            throw new RangeError('Embed description must be 4096 or fewer characters');
+        }
         this.data.description = description;
         return this;
     }
@@ -46,6 +52,9 @@ export class EmbedBuilder {
     }
 
     setFooter(footer: { text: string; icon_url?: string }): this {
+        if (footer.text.length > 2048) {
+            throw new RangeError('Embed footer text must be 2048 or fewer characters');
+        }
         this.data.footer = footer;
         return this;
     }
@@ -61,27 +70,83 @@ export class EmbedBuilder {
     }
 
     setAuthor(author: { name: string; url?: string; icon_url?: string }): this {
+        if (author.name.length > 256) {
+            throw new RangeError('Embed author name must be 256 or fewer characters');
+        }
         this.data.author = author;
         return this;
     }
 
     addFields(...fields: EmbedField[]): this {
         if (!this.data.fields) this.data.fields = [];
+        
+        // Validate field limits
+        if (this.data.fields.length + fields.length > 25) {
+            throw new RangeError('Embeds can have a maximum of 25 fields');
+        }
+        
+        // Validate each field
+        for (const field of fields) {
+            if (field.name.length > 256) {
+                throw new RangeError('Embed field name must be 256 or fewer characters');
+            }
+            if (field.value.length > 1024) {
+                throw new RangeError('Embed field value must be 1024 or fewer characters');
+            }
+        }
+        
         this.data.fields.push(...fields);
         return this;
     }
 
     addField(name: string, value: string, inline?: boolean): this {
+        if (name.length > 256) {
+            throw new RangeError('Embed field name must be 256 or fewer characters');
+        }
+        if (value.length > 1024) {
+            throw new RangeError('Embed field value must be 1024 or fewer characters');
+        }
         return this.addFields({ name, value, inline });
     }
 
     setFields(...fields: EmbedField[]): this {
+        if (fields.length > 25) {
+            throw new RangeError('Embeds can have a maximum of 25 fields');
+        }
+        
+        // Validate each field
+        for (const field of fields) {
+            if (field.name.length > 256) {
+                throw new RangeError('Embed field name must be 256 or fewer characters');
+            }
+            if (field.value.length > 1024) {
+                throw new RangeError('Embed field value must be 1024 or fewer characters');
+            }
+        }
+        
         this.data.fields = fields;
         return this;
     }
 
     spliceFields(index: number, deleteCount: number, ...fields: EmbedField[]): this {
         if (!this.data.fields) this.data.fields = [];
+        
+        // Check if adding these fields would exceed the limit
+        const newLength = this.data.fields.length - deleteCount + fields.length;
+        if (newLength > 25) {
+            throw new RangeError('Embeds can have a maximum of 25 fields');
+        }
+        
+        // Validate each new field
+        for (const field of fields) {
+            if (field.name.length > 256) {
+                throw new RangeError('Embed field name must be 256 or fewer characters');
+            }
+            if (field.value.length > 1024) {
+                throw new RangeError('Embed field value must be 1024 or fewer characters');
+            }
+        }
+        
         this.data.fields.splice(index, deleteCount, ...fields);
         return this;
     }

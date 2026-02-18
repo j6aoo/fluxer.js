@@ -1,24 +1,25 @@
 export const API_VERSION = 'v1';
-export const BASE_URL = `https://api.fluxer.app/${API_VERSION}`;
+export const BASE_URL = 'https://api.fluxer.app';
 export const CDN_URL = 'https://fluxerusercontent.com';
 export const STATIC_URL = 'https://fluxerstatic.com';
 export const GATEWAY_URL = `wss://gateway.fluxer.app/?v=${API_VERSION}&encoding=json`;
 
 /** Channel types */
-export enum ChannelType {
-    GuildText = 0,
-    DM = 1,
-    GuildVoice = 2,
-    GroupDM = 3,
-    GuildCategory = 4,
-    GuildAnnouncement = 5,
-    AnnouncementThread = 10,
-    PublicThread = 11,
-    PrivateThread = 12,
-    GuildStageVoice = 13,
-    GuildForum = 15,
-    GuildDirectory = 14,
-}
+export const ChannelType = Object.freeze({
+    GUILD_TEXT: 0,
+    DM: 1,
+    GUILD_VOICE: 2,
+    GROUP_DM: 3,
+    GUILD_CATEGORY: 4,
+    GUILD_ANNOUNCEMENT: 5,
+    ANNOUNCEMENT_THREAD: 10,
+    PUBLIC_THREAD: 11,
+    PRIVATE_THREAD: 12,
+    GUILD_STAGE_VOICE: 13,
+    GUILD_DIRECTORY: 14,
+    GUILD_FORUM: 15,
+    GUILD_MEDIA: 16,
+});
 
 /** Message types */
 export enum MessageType {
