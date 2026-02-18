@@ -1,15 +1,41 @@
 {
   "name": "fluxer.js-sdk",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "description": "Official TypeScript/JavaScript SDK for the Fluxer API - Build bots for Fluxer",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "files": ["dist"],
-  "scripts": {
-    "build": "tsc",
-    "prepublishOnly": "npm run build"
+  "main": "dist/cjs/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    }
   },
-  "keywords": ["fluxer", "bot", "sdk", "api", "websocket", "chat"],
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build:cjs": "tsc -p tsconfig.json",
+    "build:esm": "tsc -p tsconfig.esm.json",
+    "build:types": "tsc -p tsconfig.json --declaration --emitDeclarationOnly --outDir dist/types",
+    "build": "npm run build:cjs && npm run build:esm && npm run build:types",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "test:run": "vitest run",
+    "prepublishOnly": "npm run build",
+    "docs": "typedoc",
+    "docs:watch": "typedoc --watch"
+  },
+  "keywords": [
+    "fluxer",
+    "bot",
+    "sdk",
+    "api",
+    "websocket",
+    "chat"
+  ],
   "author": "Fluxer",
   "license": "MIT",
   "type": "commonjs",
@@ -19,7 +45,10 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/ws": "^8.18.1",
-    "typescript": "^5.9.3"
+    "@vitest/coverage-v8": "^4.0.18",
+    "@vitest/ui": "^4.0.18",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   },
   "engines": {
     "node": ">=18.0.0"

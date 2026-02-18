@@ -1,16 +1,11 @@
-import type { Client } from '../client';
 import { Guild } from '../structures/Guild';
-import { Collection } from '../collections/Collection';
+import { DataManager } from './DataManager';
 import { Guild as GuildData } from '../types';
+import { PaginatedManager, PaginatedFetchOptions } from '../structures/Managers/PaginatedManager';
+import { Collection } from '../collections/Collection';
 
-export class GuildManager {
-    public readonly client: Client;
-    public readonly cache: Collection<string, Guild>;
-
-    constructor(client: Client) {
-        this.client = client;
-        this.cache = new Collection();
-    }
+export class GuildManager extends PaginatedManager<string, Guild, string> {
+    protected _holds = Guild;
 
     /** Fetch a guild by ID */
     async fetch(guildId: string, force = false): Promise<Guild> {
@@ -20,34 +15,39 @@ export class GuildManager {
         }
 
         const data = await this.client.rest.get<GuildData>(`/guilds/${guildId}`);
-        const guild = new Guild(this.client, data);
-        this.cache.set(guild.id, guild);
-        return guild;
+        return this._add(data);
+    }
+
+    /** Fetch multiple guilds */
+    async fetchMany(options: PaginatedFetchOptions = {}): Promise<Collection<string, Guild>> {
+        const query: any = {};
+        if (options.limit) query.limit = options.limit;
+        if (options.before) query.before = options.before;
+        if (options.after) query.after = options.after;
+
+        const data = await this.client.rest.get<GuildData[]>('/users/@me/guilds', query);
+        const guilds = new Collection<string, Guild>();
+        for (const guildData of data) {
+            const guild = this._add(guildData, options.cache);
+            guilds.set(guild.id, guild);
+        }
+        return guilds;
     }
 
     /** Create a new guild */
     async create(data: { name: string; icon?: string }): Promise<Guild> {
         const guildData = await this.client.rest.post<GuildData>('/guilds', data);
-        const guild = new Guild(this.client, guildData);
-        this.cache.set(guild.id, guild);
-        return guild;
+        return this._add(guildData);
     }
 
     /** Leave a guild */
     async leave(guildId: string): Promise<void> {
         await this.client.rest.delete(`/users/@me/guilds/${guildId}`);
-        this.cache.delete(guildId);
+        this._remove(guildId);
     }
 
     /** Add or update a guild in cache */
-    _add(data: GuildData): Guild {
-        const guild = new Guild(this.client, data);
-        this.cache.set(guild.id, guild);
-        return guild;
-    }
-
-    /** Remove a guild from cache */
-    _remove(guildId: string): void {
-        this.cache.delete(guildId);
+    _add(data: GuildData, cache = true): Guild {
+        return super._add(data, cache);
     }
 }

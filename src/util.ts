@@ -71,3 +71,12 @@ export function getStickerUrl(stickerId: string, options: Omit<ImageURLOptions, 
     const qs = params.toString();
     return `${CDN_URL}/stickers/${stickerId}.${format}${qs ? `?${qs}` : ''}`;
 }
+
+/**
+ * Resolves an emoji to a string for API requests.
+ */
+export function resolveEmoji(emoji: any): string {
+    if (typeof emoji === 'string') return emoji;
+    if (emoji.id) return `${emoji.animated ? 'a:' : ''}${emoji.name}:${emoji.id}`;
+    return emoji.name;
+}

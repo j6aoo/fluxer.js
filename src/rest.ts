@@ -1,5 +1,7 @@
 import { BASE_URL, API_VERSION } from './consts';
 import { FluxerAPIError, FluxerRateLimitError } from './errors';
+import { RateLimitManager } from './rest/RateLimitManager';
+import { EventEmitter } from 'node:events';
 
 export interface RestOptions {
     token: string;
@@ -21,71 +23,38 @@ export interface FileData {
     filename?: string;
 }
 
-interface RateLimitBucket {
-    remaining: number;
-    reset: number;
-    limit: number;
+export interface InternalResponse<T> {
+    data: T;
+    status: number;
+    headers: Headers;
+    ok: boolean;
 }
 
-export class RestClient {
-    public token: string;
+export class RestClient extends EventEmitter {
+    private readonly token: string;
     public baseURL: string;
     public version: string;
     public userAgent: string;
     public retries: number;
-    private rateLimits = new Map<string, RateLimitBucket>();
-    private globalRateLimit: number | null = null;
+    public rateLimitManager: RateLimitManager;
 
     constructor(options: RestOptions) {
+        super();
         this.token = options.token;
         this.version = options.version || API_VERSION;
         this.baseURL = options.baseURL || BASE_URL;
         this.userAgent = options.userAgent || `fluxer.js/1.0.0 (Node.js ${process.version})`;
         this.retries = options.retries ?? 3;
+        this.rateLimitManager = new RateLimitManager(this);
     }
 
-    private getBucketKey(endpoint: string, method: string): string {
-        // Group endpoints by major parameter (channel/guild id)
-        const match = endpoint.match(/^\/(channels|guilds|webhooks)\/(\d+)/);
-        if (match) return `${method}:${match[1]}:${match[2]}`;
-        return `${method}:${endpoint}`;
+    /** Get the token */
+    public getToken(): string {
+        return this.token;
     }
 
-    private async waitForRateLimit(bucketKey: string): Promise<void> {
-        // Global rate limit
-        if (this.globalRateLimit && Date.now() < this.globalRateLimit) {
-            const delay = this.globalRateLimit - Date.now();
-            await new Promise(resolve => setTimeout(resolve, delay));
-        }
-
-        // Per-route rate limit
-        const bucket = this.rateLimits.get(bucketKey);
-        if (bucket && bucket.remaining <= 0 && Date.now() < bucket.reset) {
-            const delay = bucket.reset - Date.now();
-            await new Promise(resolve => setTimeout(resolve, delay));
-        }
-    }
-
-    private updateRateLimit(bucketKey: string, headers: Headers): void {
-        const remaining = headers.get('x-ratelimit-remaining');
-        const reset = headers.get('x-ratelimit-reset');
-        const limit = headers.get('x-ratelimit-limit');
-
-        if (remaining !== null && reset !== null) {
-            this.rateLimits.set(bucketKey, {
-                remaining: parseInt(remaining),
-                reset: parseFloat(reset) * 1000,
-                limit: limit ? parseInt(limit) : 0,
-            });
-        }
-    }
-
-    private async request<T>(endpoint: string, options: RequestOptions = {}, retryCount = 0): Promise<T> {
+    public async makeRequest<T>(endpoint: string, options: RequestOptions = {}): Promise<InternalResponse<T>> {
         const method = (options.method || 'GET').toUpperCase();
-        const bucketKey = this.getBucketKey(endpoint, method);
-
-        await this.waitForRateLimit(bucketKey);
-
         const url = new URL(`${this.baseURL}${endpoint}`);
 
         if (options.query) {
@@ -109,7 +78,6 @@ export class RestClient {
 
         let body: any = options.body;
 
-        // Handle file uploads
         if (options.files && options.files.length > 0) {
             const formData = new FormData();
 
@@ -132,7 +100,6 @@ export class RestClient {
             }
 
             body = formData;
-            // Don't set Content-Type for FormData, let the browser/node set it with boundary
         } else if (body && typeof body === 'object' && !(body instanceof FormData) && !(body instanceof URLSearchParams) && !(body instanceof Blob) && !ArrayBuffer.isView(body)) {
             headers['Content-Type'] = 'application/json';
             body = JSON.stringify(body);
@@ -146,53 +113,37 @@ export class RestClient {
 
         const response = await fetch(url.toString(), fetchOptions);
 
-        this.updateRateLimit(bucketKey, response.headers);
-
-        if (response.status === 429) {
-            const retryAfter = response.headers.get('retry-after');
-            const delay = retryAfter ? parseFloat(retryAfter) * 1000 : 5000;
-
-            if (response.headers.get('x-ratelimit-global')) {
-                this.globalRateLimit = Date.now() + delay;
-            }
-
-            if (retryCount < this.retries) {
-                await new Promise(resolve => setTimeout(resolve, delay));
-                return this.request<T>(endpoint, options, retryCount + 1);
-            }
-
-            throw new FluxerRateLimitError(delay, endpoint, method);
-        }
-
-        if (!response.ok) {
-            let errorBody: any;
+        let data: any;
+        if (response.status !== 204) {
             try {
-                errorBody = await response.json();
+                data = await response.json();
             } catch {
                 try {
-                    errorBody = await response.text();
+                    data = await response.text();
                 } catch {
-                    errorBody = { code: 'UNKNOWN', message: 'Unknown error' };
+                    data = null;
                 }
             }
+        }
 
-            const code = errorBody?.code || 'UNKNOWN';
-            const message = errorBody?.message || `Request failed with status ${response.status}`;
-
-            // Retry on 5xx errors
-            if (response.status >= 500 && retryCount < this.retries) {
-                await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
-                return this.request<T>(endpoint, options, retryCount + 1);
-            }
-
+        if (!response.ok && response.status !== 429) {
+            const code = data?.code || 'UNKNOWN';
+            const message = data?.message || `Request failed with status ${response.status}`;
             throw new FluxerAPIError(message, response.status, code, endpoint, method);
         }
 
-        if (response.status === 204) {
-            return undefined as T;
-        }
+        return {
+            data,
+            status: response.status,
+            headers: response.headers,
+            ok: response.ok
+        };
+    }
 
-        return await response.json() as T;
+    private async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+        const method = (options.method || 'GET').toUpperCase();
+        const handler = this.rateLimitManager.getHandler(endpoint, method);
+        return handler.push<T>(endpoint, options);
     }
 
     public async get<T = any>(endpoint: string, query?: Record<string, any>): Promise<T> {

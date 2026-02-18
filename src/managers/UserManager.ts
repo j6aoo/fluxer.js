@@ -1,16 +1,9 @@
-import type { Client } from '../client';
 import { User } from '../structures/User';
-import { Collection } from '../collections/Collection';
+import { DataManager } from './DataManager';
 import { User as UserData } from '../types';
 
-export class UserManager {
-    public readonly client: Client;
-    public readonly cache: Collection<string, User>;
-
-    constructor(client: Client) {
-        this.client = client;
-        this.cache = new Collection();
-    }
+export class UserManager extends DataManager<string, User, string> {
+    protected _holds = User;
 
     /** Fetch a user by ID */
     async fetch(userId: string, force = false): Promise<User> {
@@ -20,13 +13,11 @@ export class UserManager {
         }
 
         const data = await this.client.rest.get<UserData>(`/users/${userId}`);
-        const user = new User(this.client, data);
-        this.cache.set(user.id, user);
-        return user;
+        return this._add(data);
     }
 
     /** Add or update a user in cache */
-    _add(data: UserData): User {
+    _add(data: UserData, cache = true): User {
         const existing = this.cache.get(data.id);
         if (existing) {
             // Update existing user properties
@@ -34,15 +25,13 @@ export class UserManager {
             existing.discriminator = data.discriminator;
             existing.avatar = data.avatar || null;
             existing.bot = !!data.bot;
+            existing.banner = data.banner || null;
+            existing.flags = data.flags || 0;
+            existing.globalName = (data as any).global_name || null;
+            existing.system = !!data.system;
+            existing.accentColor = (data as any).accent_color || null;
             return existing;
         }
-        const user = new User(this.client, data);
-        this.cache.set(user.id, user);
-        return user;
-    }
-
-    /** Remove a user from cache */
-    _remove(userId: string): void {
-        this.cache.delete(userId);
+        return super._add(data, cache);
     }
 }

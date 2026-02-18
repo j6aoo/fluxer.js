@@ -1,17 +1,17 @@
-import type { Client } from '../client';
 import { Message } from '../structures/Message';
 import { Collection } from '../collections/Collection';
+import { DataManager } from './DataManager';
+import type { Client } from '../client';
 import { Message as MessageData } from '../types';
+import { PaginatedManager, PaginatedFetchOptions } from '../structures/Managers/PaginatedManager';
 
-export class MessageManager {
-    public readonly client: Client;
-    public readonly cache: Collection<string, Message>;
+export class MessageManager extends PaginatedManager<string, Message, string> {
     public readonly channelId: string;
+    protected _holds = Message;
 
     constructor(client: Client, channelId: string) {
-        this.client = client;
+        super(client);
         this.channelId = channelId;
-        this.cache = new Collection();
     }
 
     /** Fetch a specific message by ID */
@@ -19,13 +19,11 @@ export class MessageManager {
         const data = await this.client.rest.get<MessageData>(
             `/channels/${this.channelId}/messages/${messageId}`,
         );
-        const message = new Message(this.client, data);
-        this.cache.set(message.id, message);
-        return message;
+        return this._add(data);
     }
 
     /** Fetch multiple messages */
-    async fetchMany(options: { limit?: number; before?: string; after?: string; around?: string } = {}): Promise<Collection<string, Message>> {
+    async fetchMany(options: PaginatedFetchOptions = {}): Promise<Collection<string, Message>> {
         const query: Record<string, any> = {};
         if (options.limit) query.limit = options.limit;
         if (options.before) query.before = options.before;
@@ -39,17 +37,27 @@ export class MessageManager {
 
         const result = new Collection<string, Message>();
         for (const data of messages) {
-            const message = new Message(this.client, data);
-            this.cache.set(message.id, message);
+            const message = this._add(data, options.cache);
             result.set(message.id, message);
         }
         return result;
     }
 
+    /** Fetch pinned messages */
+    async fetchPinned(): Promise<Collection<string, Message>> {
+        const data = await this.client.rest.get<MessageData[]>(`/channels/${this.channelId}/pins`);
+        const messages = new Collection<string, Message>();
+        for (const messageData of data) {
+            const message = this._add(messageData);
+            messages.set(message.id, message);
+        }
+        return messages;
+    }
+
     /** Delete a message */
     async delete(messageId: string, reason?: string): Promise<void> {
         await this.client.rest.delete(`/channels/${this.channelId}/messages/${messageId}`, { reason });
-        this.cache.delete(messageId);
+        this._remove(messageId);
     }
 
     /** Bulk delete messages */
@@ -61,18 +69,11 @@ export class MessageManager {
         await this.client.rest.post(`/channels/${this.channelId}/messages/bulk-delete`, {
             message_ids: messageIds,
         });
-        for (const id of messageIds) this.cache.delete(id);
+        for (const id of messageIds) this._remove(id);
     }
 
     /** Add or update a message in cache */
-    _add(data: MessageData): Message {
-        const message = new Message(this.client, data);
-        this.cache.set(message.id, message);
-        return message;
-    }
-
-    /** Remove a message from cache */
-    _remove(messageId: string): void {
-        this.cache.delete(messageId);
+    _add(data: MessageData, cache = true): Message {
+        return super._add(data, cache);
     }
 }

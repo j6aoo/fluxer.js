@@ -2,24 +2,16 @@ import WebSocket from 'ws';
 import { EventEmitter } from 'events';
 import { GATEWAY_URL } from './consts';
 import { FluxerGatewayError } from './errors';
+import { GatewayManager, GatewayManagerOptions } from './gateway/GatewayManager';
+import { GatewayOpCodes, GatewayDispatchEvents, GatewayCloseCodes } from './gateway/GatewayEvents';
 
-export enum GatewayOpCodes {
-    Dispatch = 0,
-    Heartbeat = 1,
-    Identify = 2,
-    PresenceUpdate = 3,
-    VoiceStateUpdate = 4,
-    Resume = 6,
-    Reconnect = 7,
-    RequestGuildMembers = 8,
-    InvalidSession = 9,
-    Hello = 10,
-    HeartbeatAck = 11,
-}
+export { GatewayOpCodes, GatewayDispatchEvents, GatewayCloseCodes };
+export { GatewayManager, GatewayManagerOptions };
+export { GatewayShard, ShardStatus } from './gateway/GatewayShard';
 
 export interface GatewayClientOptions {
     token: string;
-    intents?: number;
+    intents?: number | bigint;
     url?: string;
     presence?: PresenceData;
     compress?: boolean;
@@ -52,7 +44,7 @@ export enum ActivityType {
 export class GatewayClient extends EventEmitter {
     private ws: WebSocket | null = null;
     private token: string;
-    private intents: number;
+    private intents: number | bigint;
     private url: string;
     private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
     private lastSequence: number | null = null;
@@ -66,6 +58,9 @@ export class GatewayClient extends EventEmitter {
     private compress: boolean;
     private largeThreshold: number;
     private expectedClose: boolean = false;
+    private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    private lastHeartbeatSent: number = 0;
+    private lastHeartbeatAck: number = 0;
 
     constructor(options: GatewayClientOptions) {
         super();
@@ -107,21 +102,22 @@ export class GatewayClient extends EventEmitter {
             this.emit('debug', `[Gateway] Connection closed: ${code} - ${reasonStr}`);
             this.stopHeartbeat();
 
+            // Always clean up the WebSocket reference
+            this.ws = null;
+
             if (this.expectedClose || this.destroyed) {
-                this.ws = null;
+                this.expectedClose = false;
                 return;
             }
 
             // Handle non-resumable close codes
             const nonResumable = [4004, 4010, 4011, 4012, 4013, 4014];
             if (nonResumable.includes(code)) {
-                this.ws = null;
                 this.emit('error', new FluxerGatewayError(`Gateway closed with non-resumable code: ${code}`, code));
                 this.emit('disconnected', code);
                 return;
             }
 
-            this.ws = null;
             this.attemptReconnect();
         });
 
@@ -173,6 +169,7 @@ export class GatewayClient extends EventEmitter {
 
             case GatewayOpCodes.HeartbeatAck:
                 this.heartbeatAcked = true;
+                this.lastHeartbeatAck = Date.now();
                 this.emit('debug', '[Gateway] Heartbeat acknowledged');
                 break;
 
@@ -233,13 +230,14 @@ export class GatewayClient extends EventEmitter {
     }
 
     private sendHeartbeat(): void {
+        this.lastHeartbeatSent = Date.now();
         this.send(GatewayOpCodes.Heartbeat, this.lastSequence);
     }
 
     private identify(): void {
         const payload = {
             token: this.token,
-            intents: this.intents,
+            intents: Number(this.intents),
             properties: {
                 os: process.platform,
                 browser: 'fluxer.js',
@@ -286,8 +284,14 @@ export class GatewayClient extends EventEmitter {
         const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 30000);
         this.emit('debug', `[Gateway] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
-        setTimeout(() => {
-            if (!this.destroyed) {
+        // Clear any existing reconnect timeout to prevent multiple reconnects
+        if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+        }
+
+        this.reconnectTimeout = setTimeout(() => {
+            this.reconnectTimeout = null;
+            if (!this.destroyed && !this.connected) {
                 this.connect();
             }
         }, delay);
@@ -301,8 +305,8 @@ export class GatewayClient extends EventEmitter {
             } catch {
                 // Ignore close errors
             }
-            this.ws = null;
-            this.expectedClose = false;
+            // Don't set ws to null immediately - let the close event handler do it
+            // Don't reset expectedClose here - the close event handler needs it
         }
         this.stopHeartbeat();
     }
@@ -347,11 +351,24 @@ export class GatewayClient extends EventEmitter {
     /** Gracefully disconnect from the gateway */
     public disconnect(): void {
         this.destroyed = true;
+        // Clear any pending reconnect timeout
+        if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = null;
+        }
         this.closeWebSocket(1000);
+        // Force close the WebSocket if it's still open
+        if (this.ws) {
+            try {
+                this.ws.terminate();
+            } catch {
+                // Ignore terminate errors
+            }
+            this.ws = null;
+        }
         this.sessionId = null;
         this.lastSequence = null;
         this.resumeGatewayUrl = null;
-        this.removeAllListeners();
     }
 
     /** Check if the gateway is connected */
@@ -361,6 +378,6 @@ export class GatewayClient extends EventEmitter {
 
     /** Get ping (not directly available, tracked via heartbeat timing) */
     public get ping(): number {
-        return -1; // Would need heartbeat timing tracking
+        return this.lastHeartbeatAck - this.lastHeartbeatSent;
     }
 }

@@ -86,6 +86,19 @@ export interface Emoji {
     available?: boolean;
 }
 
+export interface GuildEmojiCreateOptions {
+    name: string;
+    image: string;
+    roles?: Snowflake[];
+    reason?: string;
+}
+
+export interface GuildEmojiEditOptions {
+    name?: string;
+    roles?: Snowflake[];
+    reason?: string;
+}
+
 export interface Channel {
     id: Snowflake;
     type: number;
@@ -316,6 +329,10 @@ export interface MessageComponent {
     min_values?: number;
     max_values?: number;
     components?: MessageComponent[];
+    value?: string;
+    min_length?: number;
+    max_length?: number;
+    required?: boolean;
 }
 
 export interface SelectOption {
@@ -324,6 +341,30 @@ export interface SelectOption {
     description?: string;
     emoji?: Emoji;
     default?: boolean;
+}
+
+export enum ComponentType {
+    ActionRow = 1,
+    Button = 2,
+    StringSelect = 3,
+    TextInput = 4,
+    UserSelect = 5,
+    RoleSelect = 6,
+    MentionableSelect = 7,
+    ChannelSelect = 8,
+}
+
+export enum ButtonStyle {
+    Primary = 1,
+    Secondary = 2,
+    Success = 3,
+    Danger = 4,
+    Link = 5,
+}
+
+export enum TextInputStyle {
+    Short = 1,
+    Paragraph = 2,
 }
 
 export interface StickerItem {
@@ -352,4 +393,9 @@ export interface GatewayPayload {
     d?: any;
     s?: number;
     t?: string;
+}
+
+export interface GuildBan {
+    reason: string | null;
+    user: User;
 }

@@ -1,28 +1,40 @@
 import { EventEmitter } from 'events';
 import { RestClient, RestOptions } from './rest';
-import { GatewayClient, GatewayClientOptions, PresenceData, ActivityType } from './gateway';
+import { GatewayManager, GatewayManagerOptions, PresenceData, ActivityType, GatewayDispatchEvents } from './gateway';
 import { ChannelManager } from './managers/ChannelManager';
 import { UserManager } from './managers/UserManager';
 import { GuildManager } from './managers/GuildManager';
 import { WebhookManager } from './managers/WebhookManager';
 import { Message } from './structures/Message';
+import { MessageReaction } from './structures/MessageReaction';
+import { ReactionEmoji } from './structures/ReactionEmoji';
 import { Guild } from './structures/Guild';
 import { Channel } from './structures/Channel';
 import { GuildMember } from './structures/GuildMember';
 import { User } from './structures/User';
+import { Presence } from './structures/Presence';
+import { VoiceState } from './structures/VoiceState';
 import { FluxerError } from './errors';
 
 export interface ClientOptions {
     token: string;
-    intents?: number;
+    intents?: number | bigint;
     rest?: Partial<RestOptions>;
-    gateway?: Partial<GatewayClientOptions>;
+    gateway?: Partial<GatewayManagerOptions>;
     presence?: PresenceData;
     messageCacheMaxSize?: number;
+    shards?: number | 'auto';
+    shardList?: number[];
+    totalShards?: number;
 }
 
 export interface ClientEvents {
     ready: [user: User];
+    shardReady: [shardId: number, data: any];
+    shardResume: [shardId: number];
+    shardDisconnect: [shardId: number, code: number];
+    shardError: [shardId: number, error: Error];
+    shardDispatch: [shardId: number, event: string, data: any];
     messageCreate: [message: Message];
     messageUpdate: [message: Message];
     messageDelete: [data: { id: string; channel_id: string; guild_id?: string }];
@@ -37,8 +49,8 @@ export interface ClientEvents {
     channelUpdate: [channel: Channel];
     channelDelete: [channel: Channel];
     typingStart: [data: { channel_id: string; guild_id?: string; user_id: string; timestamp: number }];
-    presenceUpdate: [data: any];
-    voiceStateUpdate: [data: any];
+    presenceUpdate: [presence: Presence];
+    voiceStateUpdate: [voiceState: VoiceState];
     voiceServerUpdate: [data: any];
     messageReactionAdd: [data: any];
     messageReactionRemove: [data: any];
@@ -51,7 +63,7 @@ export interface ClientEvents {
 export class Client extends EventEmitter {
     public readonly token: string;
     public readonly rest: RestClient;
-    public readonly gateway: GatewayClient;
+    public readonly gateway: GatewayManager;
     public readonly channels: ChannelManager;
     public readonly users: UserManager;
     public readonly guilds: GuildManager;
@@ -74,10 +86,13 @@ export class Client extends EventEmitter {
             ...options.rest,
         });
 
-        this.gateway = new GatewayClient({
+        this.gateway = new GatewayManager(this, {
             token: this.token,
-            intents: options.intents,
+            intents: options.intents || 0,
             presence: options.presence,
+            shardCount: options.shards,
+            shardList: options.shardList,
+            totalShards: options.totalShards,
             ...options.gateway,
         });
 
@@ -90,162 +105,177 @@ export class Client extends EventEmitter {
     }
 
     private _setupGatewayListeners(): void {
-        // Forward debug and error events
-        this.gateway.on('debug', (msg: string) => this.emit('debug', msg));
-        this.gateway.on('error', (err: Error) => this.emit('error', err));
-        this.gateway.on('disconnected', (code: number) => this.emit('disconnected', code));
+        // Forward manager events
+        this.gateway.on('shardReady', (id, data) => {
+            this.emit('shardReady', id, data);
+            
+            // First shard ready defines the client user
+            if (!this.user && data.user) {
+                this.user = new User(this, data.user);
+                this.users._add(data.user);
+                this.readyAt = new Date();
+                this._ready = true;
+                this.emit('ready', this.user);
+            }
 
-        // Forward raw events
-        this.gateway.on('raw', (payload: any) => this.emit('raw', payload));
-
-        // READY
-        this.gateway.on('READY', (data: any) => {
-            this.user = new User(this, data.user);
-            this.users._add(data.user);
-            this.readyAt = new Date();
-            this._ready = true;
-
-            // Cache guilds from ready payload
-            if (data.guilds) {
+            if (data.guilds && Array.isArray(data.guilds)) {
                 for (const guildData of data.guilds) {
-                    this.guilds._add(guildData);
+                    if (guildData && guildData.id) {
+                        this.guilds._add(guildData);
+                    }
                 }
             }
-
-            this.emit('ready', this.user);
         });
 
-        // RESUMED
-        this.gateway.on('RESUMED', () => {
-            this.emit('debug', '[Client] Session resumed');
+        this.gateway.on('shardResume', (id) => this.emit('shardResume', id));
+        this.gateway.on('shardDisconnect', (id, code) => this.emit('shardDisconnect', id, code));
+        this.gateway.on('shardError', (id, err) => this.emit('shardError', id, err));
+        
+        this.gateway.on('shardDispatch', (shardId, event, data) => {
+            this.emit('shardDispatch', shardId, event, data);
+            this._handleDispatch(event, data);
         });
+    }
 
-        // MESSAGE_CREATE
-        this.gateway.on('MESSAGE_CREATE', (data: any) => {
-            const message = new Message(this, data);
-            // Cache author
-            this.users._add(data.author);
-            this.emit('messageCreate', message);
-        });
-
-        // MESSAGE_UPDATE
-        this.gateway.on('MESSAGE_UPDATE', (data: any) => {
-            if (data.author) {
+    private _handleDispatch(event: string, data: any): void {
+        switch (event) {
+            case GatewayDispatchEvents.MessageCreate: {
                 const message = new Message(this, data);
-                this.emit('messageUpdate', message);
+                this.users._add(data.author);
+                this.emit('messageCreate', message);
+                break;
             }
-        });
-
-        // MESSAGE_DELETE
-        this.gateway.on('MESSAGE_DELETE', (data: any) => {
-            this.emit('messageDelete', data);
-        });
-
-        // MESSAGE_DELETE_BULK
-        this.gateway.on('MESSAGE_DELETE_BULK', (data: any) => {
-            this.emit('messageDeleteBulk', data);
-        });
-
-        // MESSAGE_REACTION_ADD
-        this.gateway.on('MESSAGE_REACTION_ADD', (data: any) => {
-            this.emit('messageReactionAdd', data);
-        });
-
-        // MESSAGE_REACTION_REMOVE
-        this.gateway.on('MESSAGE_REACTION_REMOVE', (data: any) => {
-            this.emit('messageReactionRemove', data);
-        });
-
-        // GUILD_CREATE
-        this.gateway.on('GUILD_CREATE', (data: any) => {
-            const guild = this.guilds._add(data);
-
-            // Cache channels from guild
-            if (data.channels) {
-                for (const channelData of data.channels) {
-                    channelData.guild_id = data.id;
-                    this.channels._add(channelData);
+            case GatewayDispatchEvents.MessageUpdate: {
+                if (data.author) {
+                    const message = new Message(this, data);
+                    this.emit('messageUpdate', message);
                 }
+                break;
             }
+            case GatewayDispatchEvents.MessageDelete:
+                this.emit('messageDelete', data);
+                break;
+            case GatewayDispatchEvents.MessageDeleteBulk:
+                this.emit('messageDeleteBulk', data);
+                break;
+            case GatewayDispatchEvents.GuildCreate: {
+                const guild = this.guilds._add(data);
+                if (data.channels) {
+                    for (const channelData of data.channels) {
+                        channelData.guild_id = data.id;
+                        this.channels._add(channelData);
+                    }
+                }
+                this.emit('guildCreate', guild);
+                break;
+            }
+            case GatewayDispatchEvents.GuildUpdate: {
+                const guild = this.guilds._add(data);
+                this.emit('guildUpdate', guild);
+                break;
+            }
+            case GatewayDispatchEvents.GuildDelete:
+                this.guilds._remove(data.id);
+                this.emit('guildDelete', data);
+                break;
+            case GatewayDispatchEvents.GuildMemberAdd: {
+                const member = new GuildMember(this, data);
+                if (data.user) this.users._add(data.user);
+                this.emit('guildMemberAdd', member);
+                break;
+            }
+            case GatewayDispatchEvents.GuildMemberUpdate: {
+                const member = new GuildMember(this, data);
+                if (data.user) this.users._add(data.user);
+                this.emit('guildMemberUpdate', member);
+                break;
+            }
+            case GatewayDispatchEvents.GuildMemberRemove:
+                this.emit('guildMemberRemove', data);
+                break;
+            case GatewayDispatchEvents.ChannelCreate: {
+                const channel = this.channels._add(data);
+                this.emit('channelCreate', channel);
+                break;
+            }
+            case GatewayDispatchEvents.ChannelUpdate: {
+                const channel = this.channels._add(data);
+                this.emit('channelUpdate', channel);
+                break;
+            }
+            case GatewayDispatchEvents.ChannelDelete: {
+                const channel = new Channel(this, data);
+                this.channels._remove(data.id);
+                this.emit('channelDelete', channel);
+                break;
+            }
+            case GatewayDispatchEvents.PresenceUpdate: {
+                const guild = this.guilds.cache.get(data.guild_id);
+                if (guild) {
+                    const presence = guild.presences._add(data);
+                    this.emit('presenceUpdate', presence);
+                }
+                break;
+            }
+            case GatewayDispatchEvents.VoiceStateUpdate: {
+                const guild = this.guilds.cache.get(data.guild_id);
+                if (guild) {
+                    const voiceState = guild.voiceStates._add(data);
+                    this.emit('voiceStateUpdate', voiceState);
+                }
+                break;
+            }
+            case GatewayDispatchEvents.VoiceServerUpdate:
+                this.emit('voiceServerUpdate', data);
+                break;
+            case GatewayDispatchEvents.TypingStart:
+                this.emit('typingStart', data);
+                break;
+            case GatewayDispatchEvents.MessageReactionAdd:
+                this._handleReactionAdd(data);
+                break;
+            case GatewayDispatchEvents.MessageReactionRemove:
+                this._handleReactionRemove(data);
+                break;
+        }
+    }
 
-            this.emit('guildCreate', guild);
-        });
+    private _handleReactionAdd(data: any): void {
+        const channel = this.channels.cache.get(data.channel_id);
+        const message = (channel as any)?.messages?.cache?.get(data.message_id);
+        if (message) {
+            const reaction = message.reactions._add({
+                count: 1,
+                me: data.user_id === this.user?.id,
+                emoji: data.emoji
+            });
+            this.emit('messageReactionAdd', reaction, this.users._add(data.member?.user || { id: data.user_id }));
+        } else {
+            this.emit('messageReactionAdd', data);
+        }
+    }
 
-        // GUILD_UPDATE
-        this.gateway.on('GUILD_UPDATE', (data: any) => {
-            const guild = this.guilds._add(data);
-            this.emit('guildUpdate', guild);
-        });
-
-        // GUILD_DELETE
-        this.gateway.on('GUILD_DELETE', (data: any) => {
-            this.guilds._remove(data.id);
-            this.emit('guildDelete', data);
-        });
-
-        // GUILD_MEMBER_ADD
-        this.gateway.on('GUILD_MEMBER_ADD', (data: any) => {
-            const member = new GuildMember(this, data);
-            if (data.user) this.users._add(data.user);
-            this.emit('guildMemberAdd', member);
-        });
-
-        // GUILD_MEMBER_UPDATE
-        this.gateway.on('GUILD_MEMBER_UPDATE', (data: any) => {
-            const member = new GuildMember(this, data);
-            if (data.user) this.users._add(data.user);
-            this.emit('guildMemberUpdate', member);
-        });
-
-        // GUILD_MEMBER_REMOVE
-        this.gateway.on('GUILD_MEMBER_REMOVE', (data: any) => {
-            this.emit('guildMemberRemove', data);
-        });
-
-        // CHANNEL_CREATE
-        this.gateway.on('CHANNEL_CREATE', (data: any) => {
-            const channel = this.channels._add(data);
-            this.emit('channelCreate', channel);
-        });
-
-        // CHANNEL_UPDATE
-        this.gateway.on('CHANNEL_UPDATE', (data: any) => {
-            const channel = this.channels._add(data);
-            this.emit('channelUpdate', channel);
-        });
-
-        // CHANNEL_DELETE
-        this.gateway.on('CHANNEL_DELETE', (data: any) => {
-            const channel = new Channel(this, data);
-            this.channels._remove(data.id);
-            this.emit('channelDelete', channel);
-        });
-
-        // TYPING_START
-        this.gateway.on('TYPING_START', (data: any) => {
-            this.emit('typingStart', data);
-        });
-
-        // PRESENCE_UPDATE
-        this.gateway.on('PRESENCE_UPDATE', (data: any) => {
-            this.emit('presenceUpdate', data);
-        });
-
-        // VOICE_STATE_UPDATE
-        this.gateway.on('VOICE_STATE_UPDATE', (data: any) => {
-            this.emit('voiceStateUpdate', data);
-        });
-
-        // VOICE_SERVER_UPDATE
-        this.gateway.on('VOICE_SERVER_UPDATE', (data: any) => {
-            this.emit('voiceServerUpdate', data);
-        });
+    private _handleReactionRemove(data: any): void {
+        const channel = this.channels.cache.get(data.channel_id);
+        const message = (channel as any)?.messages?.cache?.get(data.message_id);
+        if (message) {
+            const emojiId = data.emoji.id ?? data.emoji.name;
+            const reaction = message.reactions.cache.get(emojiId);
+            if (reaction) {
+                reaction.count--;
+                if (data.user_id === this.user?.id) reaction.me = false;
+                if (reaction.count <= 0) message.reactions.cache.delete(emojiId);
+            }
+            this.emit('messageReactionRemove', reaction || data, data.user_id);
+        } else {
+            this.emit('messageReactionRemove', data);
+        }
     }
 
     /** Connect to the gateway and start receiving events */
     public async login(): Promise<void> {
         this.emit('debug', '[Client] Logging in...');
-        this.gateway.connect();
+        await this.gateway.connect();
     }
 
     /** Disconnect from the gateway */

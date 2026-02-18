@@ -2,35 +2,87 @@
 export { Client } from './client';
 export type { ClientOptions, ClientEvents } from './client';
 
+// Sharding
+export { ShardingManager } from './sharding/ShardingManager';
+export type { ShardingManagerOptions } from './sharding/ShardingManager';
+export { Shard } from './sharding/Shard';
+export { ShardClientUtil } from './sharding/ShardClientUtil';
+
 // REST
 export { RestClient } from './rest';
+export { AsyncQueue } from './rest/AsyncQueue';
+export { SequentialHandler } from './rest/SequentialHandler';
+export { RateLimitManager } from './rest/RateLimitManager';
 export type { RestOptions, RequestOptions, FileData } from './rest';
 
 // Gateway
 export { GatewayClient, GatewayOpCodes, ActivityType } from './gateway';
 export type { GatewayClientOptions, PresenceData, ActivityData } from './gateway';
+export { GatewayShard, ShardStatus } from './gateway/GatewayShard';
+export { GatewayManager, GatewayManagerOptions } from './gateway/GatewayManager';
+export { GatewayDispatchEvents, GatewayCloseCodes } from './gateway/GatewayEvents';
+export { IntentsBitField } from './util/Intents';
 
 // Structures
+export { Base } from './structures/Base';
 export { User } from './structures/User';
 export { Channel } from './structures/Channel';
-export type { MessageFetchOptions, MessageCreateData } from './structures/Channel';
-export { Message } from './structures/Message';
+
+// Channel Subclasses
+export { BaseChannel } from './structures/channels/BaseChannel';
+export { TextChannel } from './structures/channels/TextChannel';
+export { VoiceChannel } from './structures/channels/VoiceChannel';
+export { DMChannel } from './structures/channels/DMChannel';
+export { CategoryChannel } from './structures/channels/CategoryChannel';
+export { ThreadChannel } from './structures/channels/ThreadChannel';
+
+export { Message, MessageFetchOptions, MessageCreateData } from './structures/Message';
+export { MessageReaction } from './structures/MessageReaction';
+export { ReactionEmoji } from './structures/ReactionEmoji';
 export { Guild } from './structures/Guild';
+export { GuildBan } from './structures/GuildBan';
 export { GuildMember } from './structures/GuildMember';
+export { GuildMemberRoleManager } from './structures/GuildMemberRoleManager';
+export { Role } from './structures/Role';
+export { Invite } from './structures/Invite';
+export { InviteGuild } from './structures/InviteGuild';
+export { GuildEmoji } from './structures/GuildEmoji';
+export { GuildEmojiRoleManager } from './structures/GuildEmojiRoleManager';
+export { Presence } from './structures/Presence';
+export { Activity } from './structures/Activity';
+export { VoiceState } from './structures/VoiceState';
 
 // Builders
 export { EmbedBuilder, Colors } from './builders/EmbedBuilder';
+export { ActionRowBuilder } from './builders/ActionRowBuilder';
+export { ButtonBuilder } from './builders/ButtonBuilder';
+export { SelectMenuBuilder } from './builders/SelectMenuBuilder';
+export { SelectMenuOptionBuilder } from './builders/SelectMenuOptionBuilder';
+export { ModalBuilder } from './builders/ModalBuilder';
+export { TextInputBuilder } from './builders/TextInputBuilder';
 
 // Managers
+export { BaseManager } from './managers/BaseManager';
+export { DataManager } from './managers/DataManager';
+export { CachedManager } from './managers/CachedManager';
 export { ChannelManager } from './managers/ChannelManager';
 export { UserManager } from './managers/UserManager';
 export { GuildManager } from './managers/GuildManager';
 export { MessageManager } from './managers/MessageManager';
+export { ReactionManager } from './managers/ReactionManager';
 export { WebhookManager } from './managers/WebhookManager';
+export { RoleManager } from './managers/RoleManager';
+export { GuildBanManager } from './managers/GuildBanManager';
+export { GuildMemberManager } from './managers/GuildMemberManager';
+export { InviteManager } from './managers/InviteManager';
+export { GuildEmojiManager } from './managers/GuildEmojiManager';
+export { PresenceManager } from './managers/PresenceManager';
+export { VoiceStateManager } from './managers/VoiceStateManager';
 export type { WebhookData, WebhookExecuteOptions } from './managers/WebhookManager';
 
 // Collections
 export { Collection } from './collections/Collection';
+export { LimitedCollection } from './collections/LimitedCollection';
 
 // Types
 export type {
@@ -39,7 +91,7 @@ export type {
     Guild as GuildData,
     Channel as ChannelData,
     Message as MessageData,
-    Role,
+    Role as RoleData,
     RoleTags,
     Emoji,
     GuildMember as GuildMemberData,
@@ -66,12 +118,20 @@ export type {
     Sticker,
     ChannelMention,
     GatewayPayload,
+    GuildBan as GuildBanData,
 } from './types';
 
 // Constants
 export { API_VERSION, BASE_URL, CDN_URL, STATIC_URL, GATEWAY_URL, ChannelType, MessageType, RelationshipType } from './consts';
 
 // Utilities
+export { BitField } from './util/BitField';
+export { Permissions, PermissionString } from './util/Permissions';
+export { UserFlags } from './util/UserFlags';
+export { MessageFlags } from './util/MessageFlags';
+export { SnowflakeUtil } from './util/SnowflakeUtil';
+export { Pagination } from './util/Pagination';
+export { PaginatedManager, PaginatedFetchOptions } from './structures/Managers/PaginatedManager';
 export {
     FLUXER_EPOCH,
     snowflakeToTimestamp,
@@ -84,6 +144,7 @@ export {
     getGuildSplashUrl,
     getEmojiUrl,
     getStickerUrl,
+    resolveEmoji,
 } from './util';
 export type { ImageURLOptions } from './util';
 

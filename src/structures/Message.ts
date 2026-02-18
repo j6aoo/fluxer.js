@@ -1,7 +1,25 @@
 import type { Client } from '../client';
 import { Message as MessageData, Embed, Attachment, Reaction } from '../types';
 import { User } from './User';
-import { Channel, MessageCreateData } from './Channel';
+import { Channel } from './Channel';
+import { getCreationDate, resolveEmoji } from '../util';
+import { ReactionManager } from '../managers/ReactionManager';
+
+export interface MessageFetchOptions {
+    limit?: number;
+    before?: string;
+    after?: string;
+    around?: string;
+}
+
+export interface MessageCreateData {
+    content?: string;
+    embeds?: any[];
+    message_reference?: { message_id: string };
+    components?: any[];
+    tts?: boolean;
+    flags?: number;
+}
 
 export class Message {
     public readonly client: Client;
@@ -18,7 +36,7 @@ export class Message {
     public mentionRoles: string[];
     public attachments: Attachment[];
     public embeds: Embed[];
-    public reactions: Reaction[];
+    public reactions: ReactionManager;
     public pinned: boolean;
     public webhookId: string | null;
     public type: number;
@@ -41,7 +59,12 @@ export class Message {
         this.mentionRoles = data.mention_roles || [];
         this.attachments = data.attachments || [];
         this.embeds = data.embeds || [];
-        this.reactions = data.reactions || [];
+        this.reactions = new ReactionManager(client, this);
+        if (data.reactions) {
+            for (const reaction of data.reactions) {
+                this.reactions._add(reaction);
+            }
+        }
         this.pinned = data.pinned;
         this.webhookId = data.webhook_id || null;
         this.type = data.type;
@@ -53,7 +76,6 @@ export class Message {
     }
 
     get createdAt(): Date {
-        const { getCreationDate } = require('../util');
         return getCreationDate(this.id);
     }
 
@@ -97,22 +119,23 @@ export class Message {
     }
 
     /** React to this message */
-    async react(emoji: string): Promise<void> {
-        const encoded = encodeURIComponent(emoji);
+    async react(emoji: string | any): Promise<void> {
+        const resolved = resolveEmoji(emoji);
+        const encoded = encodeURIComponent(resolved);
         await this.client.rest.put(`/channels/${this.channelId}/messages/${this.id}/reactions/${encoded}/@me`);
     }
 
     /** Remove own reaction */
-    async unreact(emoji: string): Promise<void> {
-        const encoded = encodeURIComponent(emoji);
+    async unreact(emoji: string | any): Promise<void> {
+        const resolved = resolveEmoji(emoji);
+        const encoded = encodeURIComponent(resolved);
         await this.client.rest.delete(`/channels/${this.channelId}/messages/${this.id}/reactions/${encoded}/@me`);
     }
 
     /** Fetch the channel this message is in */
     async fetchChannel(): Promise<Channel> {
-        const { Channel: ChannelClass } = require('./Channel');
         const data = await this.client.rest.get<any>(`/channels/${this.channelId}`);
-        return new ChannelClass(this.client, data);
+        return new Channel(this.client, data);
     }
 
     /** Check if this message was sent by a bot */
@@ -123,6 +146,11 @@ export class Message {
     /** Check if this message is a system message */
     get isSystem(): boolean {
         return this.type !== 0 && this.type !== 19;
+    }
+
+    /** Clear all reactions from this message */
+    async clearReactions(): Promise<void> {
+        await this.reactions.removeAll();
     }
 
     toString(): string {
@@ -143,7 +171,15 @@ export class Message {
             mention_roles: this.mentionRoles,
             attachments: this.attachments,
             embeds: this.embeds,
-            reactions: this.reactions,
+            reactions: this.reactions.cache.map(r => ({
+                count: r.count,
+                me: r.me,
+                emoji: {
+                    id: r.emoji.id || undefined,
+                    name: r.emoji.name || undefined,
+                    animated: r.emoji.animated
+                }
+            })),
             pinned: this.pinned,
             webhook_id: this.webhookId || undefined,
             type: this.type,

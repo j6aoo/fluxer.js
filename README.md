@@ -1,256 +1,101 @@
 # fluxer.js
 
-The official TypeScript/JavaScript SDK for the [Fluxer](https://fluxer.app) API. Build powerful bots and automations for the Fluxer platform.
+Uma SDK que não te abandona no meio do caminho. Diferente daquele relacionamento tóxico que você teve.
 
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-green)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+## O que é isso aqui
 
-## Features
+O Fluxer é basicamente um Discord que decidiu seguir sua própria jornada. É open source, independente, e tem uma API praticamente idêntica à do Discord. Sabe aquela história de "se funciona no Discord, funciona aqui"? Pois é, mais ou menos isso. Muda a URL base e pronto, você tá no rolê.
 
-- Full REST API coverage (users, guilds, channels, messages, webhooks, invites)
-- Real-time Gateway (WebSocket) with auto-reconnect, resume, and heartbeat
-- Built-in rate limit handling with retry logic
-- Rich structures with helper methods (Message.reply(), Channel.send(), Guild.ban(), etc.)
-- EmbedBuilder for rich message embeds
-- Collection class with utility methods (filter, find, map, etc.)
-- Full TypeScript support with typed events
-- CDN helpers for avatars, icons, banners, emojis
-- Snowflake utilities
+Essa SDK aqui é pra você que quer construir bots pro Fluxer sem perder a sanidade mental. A gente já fez o trabalho sujo de lidar com WebSocket, rate limits, caches, e todas aquelas coisas chatas que ninguém quer implementar do zero.
 
-## Installation
+## Por que usar isso
 
-```bash
-npm install fluxer.js
-```
+**Sharding que realmente funciona**: Sabe aquele bot que você tem que dividir em shards porque cresceu demais? A gente resolveu isso de um jeito que não dá vontade de chorar. Multi-process, IPC, auto-respawn quando o shard morre (e ele vai morrer). Tá tudo aqui.
 
-## Quick Start
+**Rate limiting que não te deixa na mão**: A API do Fluxer tem limites. A gente respeita esses limites automaticamente. Filas, buckets, retries com backoff exponencial. Você não precisa ficar calculando delay na mão como se fosse 2015.
 
-```typescript
-import { Client } from 'fluxer.js';
+**Builders que fazem sentido**: Quer mandar uma mensagem com botões, selects, modais? Tem builder pra tudo. E eles validam suas merdas antes de você descobrir no runtime que botão não pode ter mais de 80 caracteres.
 
-const client = new Client({
-    token: 'YOUR_BOT_TOKEN',
-});
+**TypeScript que não te odeia**: Tipagem forte, autocomplete que funciona, e zero dessas gambiarras de `any` escondido. Se tá tipado, tá tipado direito.
 
-client.on('ready', (user) => {
-    console.log(`Logged in as ${user.tag}`);
-});
+## O que você pode fazer
 
-client.on('messageCreate', async (message) => {
-    if (message.author.bot) return;
+**Bots pequenos**: Aquele bot de moderação básica pro seu servidor de amigos. Funciona de boa.
 
-    if (message.content === '!ping') {
-        await message.reply('Pong!');
-    }
-});
+**Bots médios**: Servidor com alguns milhares de membros, várias guilds. O cache inteligente e o rate limiting automático carregam isso nas costas.
 
-client.login();
-```
+**Bots gigantes**: Sharding automático, broadcast entre processos, gerenciamento de presença em escala. A SDK não trava quando seu bot entra em 10 mil servidores.
 
-## Examples
+**Webhooks**: Recebe interações via HTTP sem precisar manter WebSocket aberto 24/7. Útil pra quem gosta de serverless e não quer pagar por container ocioso.
 
-### Send Embeds
+**Automação**: Scripts que rodam uma vez e saem. CRUD de mensagens, gestão de membros, backup de servidores. Você decide se quer modo REST-only ou com gateway.
 
-```typescript
-import { Client, EmbedBuilder, Colors } from 'fluxer.js';
+## Arquitetura que a gente segue
 
-const client = new Client({ token: 'YOUR_BOT_TOKEN' });
+A SDK é estruturada de um jeito que você consegue achar as coisas sem ter que abrir 15 arquivos diferentes.
 
-client.on('messageCreate', async (message) => {
-    if (message.content === '!info') {
-        const embed = new EmbedBuilder()
-            .setTitle('Server Info')
-            .setDescription('Welcome to the server!')
-            .setColor(Colors.Blue)
-            .addField('Members', '100', true)
-            .addField('Channels', '20', true)
-            .setFooter({ text: 'Powered by fluxer.js' })
-            .setTimestamp();
+**Structures** são os objetos que representam coisas da API. Usuários, mensagens, canais, guilds. Eles têm métodos pra fazer operações e getters pra informações derivadas. Quer banir alguém? `member.ban()`. Quer saber a cor do cargo mais alto? `member.displayHexColor`. Simples assim.
 
-        await message.reply({ embeds: [embed.toJSON()] });
-    }
-});
+**Managers** cuidam dos caches e das operações em grupo. O GuildManager busca guilds. O MessageManager busca mensagens. Eles lidam com a paginação chata, atualização de caches, e invalidação quando necessário. Você não precisa ficar gerenciando Map na mão.
 
-client.login();
-```
+**Builders** são pra quando você precisa construir objetos complexos. Embeds, botões, selects, modais. É o padrão fluent que encadeia métodos e valida tudo no final. Nada de passar objeto JSON de 50 linhas.
 
-### Guild Management
+**Sharding** é separado porque sharding é complicado demais pra ser só mais uma opção no Client. GatewayShard gerencia uma conexão. GatewayManager gerencia várias. ShardingManager sobe processos separados. Cada um no seu quadrado.
 
-```typescript
-client.on('guildCreate', async (guild) => {
-    console.log(`Joined guild: ${guild.name} (${guild.memberCount} members)`);
+## Cache que não explode sua memória
 
-    // Fetch channels
-    const channels = await guild.fetchChannels();
-    console.log(`Channels: ${channels.map(c => c.name).join(', ')}`);
+Por padrão a gente usa LimitedCollection com sweepers automáticos. Mensagens antigas somem sozinhas. Membros inativos são removidos. Presenças podem ser desabilitadas completamente se você não precisa. Você define limites por manager e a SDK respeita.
 
-    // Create a channel
-    const newChannel = await guild.createChannel({
-        name: 'bot-commands',
-        topic: 'Use bot commands here',
-    });
+Se você quer cache infinito, pode configurar. Mas a gente não recomenda. Já viu bot de Discord morrer por memory leak? A gente também viu. Por isso os defaults são conservadores.
 
-    await newChannel.send('Hello! Bot is ready.');
-});
-```
+## Rate limiting sério
 
-### Moderation
+A SDK implementa filas sequenciais por bucket. Requests pro mesmo endpoint esperam uma da outra. Quando bate 429, a gente espera o retry-after e tenta de novo. Se for rate limit global, todo mundo para e espera.
 
-```typescript
-client.on('messageCreate', async (message) => {
-    if (message.content.startsWith('!ban ') && message.mentions.length > 0) {
-        const target = message.mentions[0];
+Isso significa que você pode fazer 100 chamadas simultâneas que a SDK vai serializar o que precisa e paralelizar o que pode. Sem você ter que pensar nisso.
 
-        try {
-            const guild = await client.guilds.fetch(message.guildId!);
-            await guild.banMember(target.id, {
-                reason: `Banned by ${message.author.tag}`,
-                delete_message_seconds: 86400,
-            });
-            await message.reply(`Banned ${target.tag}`);
-        } catch (err) {
-            await message.reply('Failed to ban user.');
-        }
-    }
-});
-```
+## Eventos que você realmente usa
 
-### Webhooks
+A gente não emite evento genérico demais. Cada evento do gateway vira uma instância de structure apropriada. MESSAGE_CREATE vira Message. GUILD_MEMBER_UPDATE vira GuildMember. E você recebe old e new quando faz sentido.
 
-```typescript
-const webhook = await client.webhooks.create('CHANNEL_ID', {
-    name: 'My Webhook',
-});
+Os eventos seguem o padrão do Discord, então se você já usou discord.js, sabe exatamente o que esperar. ready, messageCreate, guildCreate, interactionCreate. Os mesmos nomes, os mesmos payloads.
 
-await client.webhooks.execute(webhook.id, webhook.token!, {
-    content: 'Hello from a webhook!',
-    username: 'Webhook Bot',
-});
-```
+## E se eu quiser usar sem gateway
 
-### REST-Only Usage
+Tem modo REST-only. Você cria o RestClient direto, sem passar pelo Client. Faz requests pra API sem manter WebSocket aberto. Útil pra scripts, cron jobs, ou quando você só precisa mandar mensagem ocasionalmente.
 
-```typescript
-import { RestClient } from 'fluxer.js';
+O RestClient tem os mesmos métodos que o client.rest, então migrar de um pro outro é trocar uma linha.
 
-const rest = new RestClient({ token: 'YOUR_BOT_TOKEN' });
+## Testes que não são piada
 
-// Get current user
-const me = await rest.get('/users/@me');
-console.log(`I am ${me.username}#${me.discriminator}`);
+A gente usa Vitest. Tem cobertura de código, thresholds definidos, e mocks pra tudo. Quando você quebrar algo, vai saber antes de subir pra produção.
 
-// Send a message
-await rest.post('/channels/CHANNEL_ID/messages', {
-    content: 'Hello via REST!',
-});
+Os testes estão em `__tests__/` e são separados em unitários (lógica pura) e integração (que precisam de API real). Você roda tudo com `npm test` ou vê coverage com `npm run test:coverage`.
 
-// Get guild members
-const members = await rest.get('/guilds/GUILD_ID/members', { limit: 100 });
-```
+## Documentação que dá pra usar
 
-### Gateway-Only Usage
+Geração automática com TypeDoc. Toda a API pública documentada. Types, interfaces, enums, tudo explicado. Se seu editor mostra JSDoc, você já tem a documentação no autocomplete.
 
-```typescript
-import { GatewayClient } from 'fluxer.js';
+Tem também exemplos práticos em `examples/`. Bot básico, sharding, componentes, webhooks. Código que funciona copiado e colado.
 
-const gateway = new GatewayClient({ token: 'YOUR_BOT_TOKEN' });
+## Migração v1 pra v2
 
-gateway.on('READY', (data) => {
-    console.log(`Connected as ${data.user.username}`);
-});
+Se você usou a v1, a v2 quebrou algumas coisas. A gente não se desculpa por isso. A v1 tinha gambiarras que a gente não queria manter.
 
-gateway.on('MESSAGE_CREATE', (data) => {
-    console.log(`[${data.channel_id}] ${data.author.username}: ${data.content}`);
-});
+O Client agora usa GatewayManager internamente. Se você criava GatewayClient separado, agora passa as opções direto pro Client. O RestClient mudou de lugar. Alguns managers ganharam métodos novos e perderam outros.
 
-gateway.connect();
-```
+O guia completo de migração tá em MIGRATION.md. Leia antes de atualizar seu bot em produção.
 
-### Utilities
+## Instalação
 
-```typescript
-import {
-    snowflakeToTimestamp,
-    getCreationDate,
-    getUserAvatarUrl,
-    getDefaultAvatarUrl,
-    getGuildIconUrl,
-} from 'fluxer.js';
+npm install fluxer.js-sdk
 
-// Snowflake to timestamp
-const created = getCreationDate('123456789012345678');
-console.log(`Created at: ${created.toISOString()}`);
+Precisa de Node 18+. A gente usa fetch nativo, WebSocket nativo (com polyfill pros casos raros), e outras APIs modernas. Se você tá no Node 16 ainda, a hora de atualizar é agora.
 
-// CDN URLs
-const avatar = getUserAvatarUrl('USER_ID', 'HASH', { size: 256, format: 'webp' });
-const defaultAvatar = getDefaultAvatarUrl('USER_ID');
-const guildIcon = getGuildIconUrl('GUILD_ID', 'HASH', { size: 512 });
-```
+## Licença
 
-## API Reference
+MIT. Faz o que quiser. Só não vem cobrar suporte depois.
 
-### Client
+---
 
-The main entry point. Handles both REST and Gateway.
-
-| Event | Description |
-|-------|-------------|
-| `ready` | Bot connected and ready |
-| `messageCreate` | New message received |
-| `messageUpdate` | Message was edited |
-| `messageDelete` | Message was deleted |
-| `guildCreate` | Bot joined a guild |
-| `guildDelete` | Bot left/removed from a guild |
-| `guildMemberAdd` | Member joined a guild |
-| `guildMemberRemove` | Member left a guild |
-| `channelCreate` | Channel was created |
-| `channelUpdate` | Channel was updated |
-| `channelDelete` | Channel was deleted |
-| `typingStart` | User started typing |
-| `presenceUpdate` | User presence changed |
-| `voiceStateUpdate` | Voice state changed |
-
-### Structures
-
-| Class | Key Methods |
-|-------|------------|
-| `Message` | `reply()`, `edit()`, `delete()`, `pin()`, `react()` |
-| `Channel` | `send()`, `fetchMessages()`, `delete()`, `edit()`, `bulkDelete()`, `sendTyping()` |
-| `Guild` | `fetch()`, `edit()`, `leave()`, `createChannel()`, `createRole()`, `banMember()`, `kickMember()` |
-| `GuildMember` | `kick()`, `ban()`, `edit()`, `addRole()`, `removeRole()` |
-| `User` | `send()` (DM), `avatarURL()`, `fetchProfile()` |
-
-### Managers
-
-| Manager | Description |
-|---------|-------------|
-| `ChannelManager` | Fetch, edit, delete channels with caching |
-| `UserManager` | Fetch users with caching |
-| `GuildManager` | Fetch, create, leave guilds with caching |
-| `MessageManager` | Fetch, delete, bulk-delete messages |
-| `WebhookManager` | Create, execute, edit, delete webhooks |
-
-### Builders
-
-| Builder | Description |
-|---------|-------------|
-| `EmbedBuilder` | Fluent API for building rich embeds |
-
-### Error Classes
-
-| Error | Description |
-|-------|-------------|
-| `FluxerError` | General SDK error |
-| `FluxerAPIError` | API returned an error (includes status, code, endpoint) |
-| `FluxerRateLimitError` | Rate limited (includes retryAfter) |
-| `FluxerGatewayError` | Gateway connection error |
-
-## Requirements
-
-- Node.js 18.0.0 or higher
-- A Fluxer bot token
-
-## License
-
-MIT
+Fluxer não é Discord. Discord é marca registrada de outra empresa. A gente só implementa uma API parecida porque ela é boa e faz sentido. Se o Discord processar, a gente diz que foi sem querer.

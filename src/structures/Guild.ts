@@ -1,8 +1,18 @@
 import type { Client } from '../client';
-import { Guild as GuildData, Role as RoleData, Emoji as EmojiData, Channel as ChannelData } from '../types';
-import { Channel } from './Channel';
+import { Guild as GuildData, Role as RoleData, Emoji as EmojiData, Channel as ChannelData, Snowflake } from '../types';
+import { createChannel } from './Channel';
 import { Collection } from '../collections/Collection';
 import { getGuildIconUrl, getGuildBannerUrl } from '../util';
+import { GuildMemberManager } from '../managers/GuildMemberManager';
+import { RoleManager } from '../managers/RoleManager';
+import { ChannelManager } from '../managers/ChannelManager';
+import { GuildEmojiManager } from '../managers/GuildEmojiManager';
+import { GuildBanManager } from '../managers/GuildBanManager';
+import { PresenceManager } from '../managers/PresenceManager';
+import { VoiceStateManager } from '../managers/VoiceStateManager';
+
+import { InviteManager } from '../managers/InviteManager';
+import { BaseChannel } from './channels';
 
 export class Guild {
     public readonly client: Client;
@@ -19,44 +29,60 @@ export class Guild {
     public premiumSubscriptionCount: number;
     public preferredLocale: string;
     public memberCount: number;
-    public roles: Collection<string, RoleData>;
-    public emojis: Collection<string, EmojiData>;
-    public channels: Collection<string, Channel>;
+    public roles: RoleManager;
+    public emojis: GuildEmojiManager;
+    public channels: ChannelManager;
+    public members: GuildMemberManager;
+    public bans: GuildBanManager;
+    public presences: PresenceManager;
+    public voiceStates: VoiceStateManager;
+    public readonly invites: InviteManager;
+
 
     constructor(client: Client, data: GuildData & { channels?: ChannelData[]; member_count?: number }) {
+        if (!data || !data.id) {
+            throw new Error('Guild data is required and must have an id');
+        }
         this.client = client;
         this.id = data.id;
-        this.name = data.name;
+        this.invites = new InviteManager(client, this as any);
+
+        this.name = data.name || 'Unknown Guild';
         this.icon = data.icon || null;
         this.splash = data.splash || null;
         this.banner = data.banner || null;
-        this.ownerId = data.owner_id;
+        this.ownerId = data.owner_id || '';
         this.description = data.description || null;
         this.features = data.features || [];
         this.vanityUrlCode = data.vanity_url_code || null;
-        this.premiumTier = data.premium_tier;
+        this.premiumTier = data.premium_tier ?? 0;
         this.premiumSubscriptionCount = data.premium_subscription_count || 0;
-        this.preferredLocale = data.preferred_locale;
+        this.preferredLocale = data.preferred_locale || 'en-US';
         this.memberCount = (data as any).member_count || 0;
 
-        this.roles = new Collection();
+        this.roles = new RoleManager(this);
         if (data.roles) {
             for (const role of data.roles) {
-                this.roles.set(role.id, role);
+                this.roles._add(role);
             }
         }
 
-        this.emojis = new Collection();
+        this.members = new GuildMemberManager(this);
+        this.bans = new GuildBanManager(this);
+        this.presences = new PresenceManager(this);
+        this.voiceStates = new VoiceStateManager(this);
+
+        this.emojis = new GuildEmojiManager(this as any);
         if (data.emojis) {
             for (const emoji of data.emojis) {
-                if (emoji.id) this.emojis.set(emoji.id, emoji);
+                this.emojis._add(emoji);
             }
         }
 
-        this.channels = new Collection();
+        this.channels = new ChannelManager(client);
         if ((data as any).channels) {
             for (const ch of (data as any).channels) {
-                this.channels.set(ch.id, new Channel(client, ch));
+                this.channels.cache.set(ch.id, createChannel(client, ch));
             }
         }
     }
@@ -94,15 +120,15 @@ export class Guild {
     }
 
     /** Fetch guild channels */
-    async fetchChannels(): Promise<Channel[]> {
+    async fetchChannels(): Promise<BaseChannel[]> {
         const data = await this.client.rest.get<ChannelData[]>(`/guilds/${this.id}/channels`);
-        return data.map(ch => new Channel(this.client, ch));
+        return data.map(ch => createChannel(this.client, ch));
     }
 
     /** Create a channel in this guild */
-    async createChannel(data: { name: string; type?: number; topic?: string; parent_id?: string; nsfw?: boolean; position?: number }, reason?: string): Promise<Channel> {
+    async createChannel(data: { name: string; type?: number; topic?: string; parent_id?: string; nsfw?: boolean; position?: number }, reason?: string): Promise<BaseChannel> {
         const channelData = await this.client.rest.post<ChannelData>(`/guilds/${this.id}/channels`, data, { reason });
-        return new Channel(this.client, channelData);
+        return createChannel(this.client, channelData);
     }
 
     /** Fetch guild roles */

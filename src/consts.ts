@@ -17,6 +17,7 @@ export enum ChannelType {
     PrivateThread = 12,
     GuildStageVoice = 13,
     GuildForum = 15,
+    GuildDirectory = 14,
 }
 
 /** Message types */

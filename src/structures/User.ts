@@ -1,9 +1,12 @@
 import type { Client } from '../client';
 import { User as UserData } from '../types';
-import { getUserAvatarUrl, getDefaultAvatarUrl } from '../util';
+import { getUserAvatarUrl, getDefaultAvatarUrl, getCreationDate } from '../util';
+
+import { DMChannel } from './channels/DMChannel';
 
 export class User {
     public readonly client: Client;
+
     public readonly id: string;
     public username: string;
     public discriminator: string;
@@ -13,6 +16,7 @@ export class User {
     public system: boolean;
     public flags: number;
     public globalName: string | null;
+    public accentColor: number | null;
 
     constructor(client: Client, data: UserData) {
         this.client = client;
@@ -25,6 +29,7 @@ export class User {
         this.system = !!data.system;
         this.flags = data.flags || 0;
         this.globalName = (data as any).global_name || null;
+        this.accentColor = (data as any).accent_color || null;
     }
 
     get tag(): string {
@@ -36,7 +41,6 @@ export class User {
     }
 
     get createdAt(): Date {
-        const { getCreationDate } = require('../util');
         return getCreationDate(this.id);
     }
 
@@ -53,14 +57,18 @@ export class User {
         return this.avatarURL(options);
     }
 
-    /** Send a DM to this user */
-    async send(content: string | object): Promise<any> {
-        // Create DM channel first
-        const dmChannel = await this.client.rest.post<any>('/users/@me/channels', {
+    /** Create a DM channel with this user */
+    async createDM(): Promise<DMChannel> {
+        const data = await this.client.rest.post<any>('/users/@me/channels', {
             recipient_id: this.id,
         });
-        const body = typeof content === 'string' ? { content } : content;
-        return this.client.rest.post(`/channels/${dmChannel.id}/messages`, body);
+        return new DMChannel(this.client, data);
+    }
+
+    /** Send a DM to this user */
+    async send(content: string | object): Promise<any> {
+        const dmChannel = await this.createDM();
+        return dmChannel.send(content as any);
     }
 
     /** Fetch the full profile of this user */
