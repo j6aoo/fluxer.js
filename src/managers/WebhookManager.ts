@@ -62,6 +62,23 @@ export class WebhookManager extends BaseManager {
         await this.client.rest.delete(`/webhooks/${id}`);
     }
 
+    /** Fetch a webhook with token (no authentication required) */
+    async fetchWithToken(id: string, token: string): Promise<Webhook> {
+        const data = await this.client.rest.get<WebhookData>(`/webhooks/${id}/${token}`);
+        return new Webhook(this.client, data);
+    }
+
+    /** Edit a webhook with token */
+    async editWithToken(id: string, token: string, options: Partial<WebhookEditOptions>): Promise<Webhook> {
+        const data = await this.client.rest.patch<WebhookData>(`/webhooks/${id}/${token}`, options);
+        return new Webhook(this.client, data);
+    }
+
+    /** Delete a webhook with token */
+    async deleteWithToken(id: string, token: string): Promise<void> {
+        await this.client.rest.delete(`/webhooks/${id}/${token}`);
+    }
+
     /** Execute a webhook (send message via webhook) */
     async execute(webhookId: string, token: string, options: WebhookExecuteOptions, wait = false): Promise<Message | void> {
         const query = wait ? { wait: true } : undefined;

@@ -53,6 +53,7 @@ export { Activity } from './structures/Activity';
 export { VoiceState } from './structures/VoiceState';
 export { Relationship } from './structures/Relationship';
 export { Webhook } from './structures/Webhook';
+export { AuditLogEntry } from './structures/AuditLogEntry';
 
 // Builders
 export { EmbedBuilder, Colors } from './builders/EmbedBuilder';
@@ -81,7 +82,9 @@ export { RelationshipManager } from './managers/RelationshipManager';
 export { GuildEmojiManager } from './managers/GuildEmojiManager';
 export { PresenceManager } from './managers/PresenceManager';
 export { VoiceStateManager } from './managers/VoiceStateManager';
+export { AuditLogManager } from './managers/AuditLogManager';
 export type { WebhookCreateOptions, WebhookEditOptions, WebhookExecuteOptions } from './managers/WebhookManager';
+export type { FetchAuditLogOptions } from './managers/AuditLogManager';
 
 // Collections
 export { Collection } from './collections/Collection';
@@ -125,10 +128,15 @@ export type {
     GatewayPayload,
     GuildBan as GuildBanData,
     ImageURLOptions,
+    AuditLog as AuditLogData,
+    AuditLogEntry as AuditLogEntryData,
+    AuditLogChange,
+    AuditLogOptions,
 } from './types';
 
 // Constants
 export { API_VERSION, BASE_URL, CDN_URL, STATIC_URL, GATEWAY_URL, ChannelType, MessageType, RelationshipType } from './consts';
+export { AuditLogEvent } from './types';
 
 // Utilities
 export { BitField } from './util/BitField';

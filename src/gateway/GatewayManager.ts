@@ -5,6 +5,17 @@ import { Client } from '../client';
 import { GatewayClientOptions } from '../gateway';
 import { GATEWAY_URL } from '../consts';
 
+export interface GatewayBotInfo {
+    url: string;
+    shards: number;
+    session_start_limit: {
+        total: number;
+        remaining: number;
+        reset_after: number;
+        max_concurrency: number;
+    };
+}
+
 export interface GatewayManagerOptions extends GatewayClientOptions {
     shardCount?: number | 'auto';
     shardList?: number[];
@@ -15,15 +26,22 @@ export class GatewayManager extends EventEmitter {
     public readonly client: Client;
     public readonly shards = new Collection<number, GatewayShard>();
     public totalShards: number = 1;
+    public maxConcurrency: number = 1;
+    public gatewayUrl: string = GATEWAY_URL;
     public options: GatewayManagerOptions;
 
     constructor(client: Client, options: GatewayManagerOptions) {
         super();
         this.client = client;
-        this.options = {
-            url: GATEWAY_URL,
-            ...options
-        };
+        this.options = options;
+    }
+
+    /**
+     * Fetch gateway bot info from the API
+     * This provides the recommended number of shards and session start limits
+     */
+    public async fetchGatewayBot(): Promise<GatewayBotInfo> {
+        return this.client.rest.get<GatewayBotInfo>('/gateway/bot');
     }
 
     public async spawn(shardId: number): Promise<GatewayShard> {
@@ -48,16 +66,49 @@ export class GatewayManager extends EventEmitter {
     }
 
     public async connect(): Promise<void> {
-        const shardList = this.options.shardList || 
-            Array.from({ length: this.options.shardCount === 'auto' ? 1 : (this.options.shardCount || 1) }, (_, i) => i);
-        
-        this.totalShards = this.options.totalShards || shardList.length;
+        // Fetch gateway info if using auto shard count
+        if (this.options.shardCount === 'auto' || !this.options.url) {
+            try {
+                const gatewayInfo = await this.fetchGatewayBot();
+                this.gatewayUrl = gatewayInfo.url;
+                this.maxConcurrency = gatewayInfo.session_start_limit.max_concurrency;
+                
+                if (this.options.shardCount === 'auto') {
+                    this.totalShards = gatewayInfo.shards;
+                }
+                
+                this.client.emit('debug', `[GatewayManager] Fetched gateway info: ${gatewayInfo.shards} shards recommended, max concurrency: ${this.maxConcurrency}`);
+            } catch (error) {
+                this.client.emit('debug', `[GatewayManager] Failed to fetch gateway info, using defaults: ${error}`);
+                this.gatewayUrl = this.options.url || GATEWAY_URL;
+            }
+        } else {
+            this.gatewayUrl = this.options.url || GATEWAY_URL;
+        }
 
-        for (const shardId of shardList) {
+        const shardList = this.options.shardList || 
+            Array.from({ length: this.options.shardCount === 'auto' ? this.totalShards : (this.options.shardCount || 1) }, (_, i) => i);
+        
+        if (!this.options.totalShards) {
+            this.totalShards = shardList.length;
+        }
+
+        // Spawn shards with proper concurrency
+        const bucketSize = Math.ceil(shardList.length / this.maxConcurrency);
+        
+        for (let i = 0; i < shardList.length; i++) {
+            const shardId = shardList[i];
             await this.spawn(shardId);
-            // Discord recommends 5s between identifies per bucket, but we'll start simple
-            // In a real SDK we'd implement a proper bucket ratelimiter
-            await new Promise(resolve => setTimeout(resolve, 5000));
+            
+            // Respect rate limits: 5s between identifies within a bucket
+            // With max_concurrency > 1, we can spawn multiple shards in parallel
+            if ((i + 1) % this.maxConcurrency !== 0 && i < shardList.length - 1) {
+                // Small delay between concurrent shards
+                await new Promise(resolve => setTimeout(resolve, 100));
+            } else if (i < shardList.length - 1) {
+                // 5s delay between buckets
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            }
         }
     }
 

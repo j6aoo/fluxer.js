@@ -20,6 +20,7 @@ export interface RoleEditOptions {
  * Represents a role in a guild
  */
 export class Role extends Base {
+    public readonly id: string;
     public readonly guild!: Guild;
     public name!: string;
     public color!: number;
@@ -34,6 +35,10 @@ export class Role extends Base {
 
     constructor(client: Client, data: RoleData & { guild?: Guild }) {
         super(client);
+        if (!data.id) {
+            throw new Error('Role ID is required');
+        }
+        this.id = data.id;
         if (data.guild) {
             (this as any).guild = data.guild;
         }
@@ -51,13 +56,6 @@ export class Role extends Base {
         this.managed = data.managed ?? false;
         this.mentionable = data.mentionable ?? false;
         this.tags = data.tags ?? null;
-    }
-
-    /**
-     * The ID of the role
-     */
-    get id(): string {
-        return this.tags?.bot_id ?? this.tags?.integration_id ?? `${this.guild.id}-${this.name}`;
     }
 
     /**

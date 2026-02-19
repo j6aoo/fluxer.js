@@ -83,7 +83,14 @@ export class RestClient extends EventEmitter {
             });
         }
 
-        const authHeader = this.token.startsWith('Bot ') ? this.token : `Bot ${this.token}`;
+        // Support both Bot tokens (for bots) and Bearer tokens (for user/OAuth2)
+        let authHeader: string;
+        if (this.token.startsWith('Bot ') || this.token.startsWith('Bearer ')) {
+            authHeader = this.token;
+        } else {
+            // Default to Bot token for backwards compatibility
+            authHeader = `Bot ${this.token}`;
+        }
         const headers = new Headers(options.headers as any);
         headers.set('Authorization', authHeader);
         headers.set('User-Agent', this.userAgent);
@@ -175,10 +182,15 @@ export class RestClient extends EventEmitter {
             }
         }
 
-        // Handle rate limiting
+        // Handle rate limiting - Don't throw here, let SequentialHandler handle retry
+        // The 429 response will be returned and handled by the rate limit manager
         if (response.status === 429) {
-            const retryAfter = parseInt(response.headers.get('retry-after') || response.headers.get('Retry-After') || '0', 10) * 1000;
-            throw new FluxerRateLimitError(retryAfter, endpoint, method, response.headers);
+            return {
+                data,
+                status: response.status,
+                headers: response.headers,
+                ok: false
+            };
         }
 
         // Handle API errors

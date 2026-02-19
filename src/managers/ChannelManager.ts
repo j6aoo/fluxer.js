@@ -58,7 +58,7 @@ export class ChannelManager extends DataManager<string, BaseChannel, string> {
 
     /** Fetch RTC regions for a channel */
     async getRTCRegions(channelId: string): Promise<RTCRegion[]> {
-        return this.client.rest.get<RTCRegion[]>(`/channels/${channelId}/regions`);
+        return this.client.rest.get<RTCRegion[]>(`/channels/${channelId}/rtc-regions`);
     }
 
     /** Bulk delete messages */
@@ -83,6 +83,50 @@ export class ChannelManager extends DataManager<string, BaseChannel, string> {
     async edit(channelId: string, data: any, reason?: string): Promise<BaseChannel> {
         const updated = await this.client.rest.patch<ChannelData>(`/channels/${channelId}`, data, { reason });
         return this._add(updated);
+    }
+
+    /** Edit channel permissions for a user or role */
+    async editPermissions(channelId: string, overwriteId: string, options: {
+        type: 'role' | 'member';
+        allow?: string | bigint;
+        deny?: string | bigint;
+    }, reason?: string): Promise<void> {
+        await this.client.rest.put(`/channels/${channelId}/permissions/${overwriteId}`, {
+            type: options.type === 'role' ? 0 : 1,
+            allow: options.allow !== undefined ? String(options.allow) : undefined,
+            deny: options.deny !== undefined ? String(options.deny) : undefined,
+        }, { reason });
+    }
+
+    /** Delete channel permission overwrite */
+    async deletePermission(channelId: string, overwriteId: string, reason?: string): Promise<void> {
+        await this.client.rest.delete(`/channels/${channelId}/permissions/${overwriteId}`, { reason });
+    }
+
+    /** Add a recipient to a DM or Group DM channel */
+    async addRecipient(channelId: string, userId: string, options: {
+        accessToken: string;
+        nick?: string;
+    }): Promise<void> {
+        await this.client.rest.put(`/channels/${channelId}/recipients/${userId}`, {
+            access_token: options.accessToken,
+            nick: options.nick,
+        });
+    }
+
+    /** Remove a recipient from a DM or Group DM channel */
+    async removeRecipient(channelId: string, userId: string): Promise<void> {
+        await this.client.rest.delete(`/channels/${channelId}/recipients/${userId}`);
+    }
+
+    /** Pin a message in a channel */
+    async pinMessage(channelId: string, messageId: string, reason?: string): Promise<void> {
+        await this.client.rest.put(`/channels/${channelId}/pins/${messageId}`, {}, { reason });
+    }
+
+    /** Unpin a message from a channel */
+    async unpinMessage(channelId: string, messageId: string, reason?: string): Promise<void> {
+        await this.client.rest.delete(`/channels/${channelId}/pins/${messageId}`, { reason });
     }
 
     /** Add or update a channel in cache */

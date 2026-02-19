@@ -1,10 +1,13 @@
 import WebSocket from 'ws';
 import zlib from 'zlib';
+import { promisify } from 'util';
 import { EventEmitter } from 'events';
 import { GATEWAY_URL } from './consts';
 import { FluxerGatewayError } from './errors';
 import { GatewayManager, GatewayManagerOptions } from './gateway/GatewayManager';
 import { GatewayOpCodes, GatewayDispatchEvents, GatewayCloseCodes } from './gateway/GatewayEvents';
+
+const inflateAsync = promisify(zlib.inflate);
 
 export { GatewayOpCodes, GatewayDispatchEvents, GatewayCloseCodes };
 export { GatewayManager, GatewayManagerOptions };
@@ -99,8 +102,8 @@ export class GatewayClient extends EventEmitter {
             this.reconnectAttempts = 0;
         });
 
-        this.ws.on('message', (data: WebSocket.Data) => {
-            const parsed = this.parsePayload(data);
+        this.ws.on('message', async (data: WebSocket.Data) => {
+            const parsed = await this.parsePayload(data);
             if (!parsed) return;
             this.handlePayload(parsed);
         });
@@ -327,11 +330,12 @@ export class GatewayClient extends EventEmitter {
         return `${baseUrl}${separator}compress=zlib-stream`;
     }
 
-    private parsePayload(data: WebSocket.Data): any | null {
+    private async parsePayload(data: WebSocket.Data): Promise<any | null> {
         try {
             let content: string;
             if (this.compress && Buffer.isBuffer(data)) {
-                content = zlib.inflateSync(data).toString();
+                // Use async inflate for better performance (non-blocking)
+                content = (await inflateAsync(data)).toString();
             } else {
                 content = data.toString();
             }

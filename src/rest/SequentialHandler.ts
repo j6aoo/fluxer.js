@@ -45,8 +45,9 @@ export class SequentialHandler {
             this.updateRateLimits(response.headers);
         }
 
+        // Handle rate limit (429)
         if (response.status === 429) {
-            const retryAfter = response.headers.get('retry-after');
+            const retryAfter = response.headers.get('retry-after') || response.headers.get('Retry-After');
             const delay = retryAfter ? parseFloat(retryAfter) * 1000 : 5000;
             const isGlobal = response.headers.get('x-ratelimit-global') === 'true';
 
@@ -67,6 +68,10 @@ export class SequentialHandler {
                 await new Promise(resolve => setTimeout(resolve, delay));
                 return this.execute<T>(endpoint, options, retryCount + 1);
             }
+
+            // Max retries reached, throw error
+            const { FluxerRateLimitError } = require('../errors');
+            throw new FluxerRateLimitError(delay, endpoint, options.method || 'GET', response.headers);
         }
 
         return response.data;

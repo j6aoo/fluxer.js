@@ -1,9 +1,12 @@
 import WebSocket from 'ws';
 import zlib from 'zlib';
+import { promisify } from 'util';
 import { EventEmitter } from 'events';
 import { GatewayOpCodes, GatewayDispatchEvents } from './GatewayEvents';
 import { FluxerGatewayError } from '../errors';
 import { GatewayManager } from './GatewayManager';
+
+const inflateAsync = promisify(zlib.inflate);
 
 export enum ShardStatus {
     Connecting = 'connecting',
@@ -53,8 +56,8 @@ export class GatewayShard extends EventEmitter {
             this.reconnectAttempts = 0;
         });
 
-        this.ws.on('message', (data: WebSocket.Data) => {
-            const parsed = this.parsePayload(data);
+        this.ws.on('message', async (data: WebSocket.Data) => {
+            const parsed = await this.parsePayload(data);
             if (!parsed) return;
             this.handlePayload(parsed);
         });
@@ -235,7 +238,8 @@ export class GatewayShard extends EventEmitter {
     }
 
     private getGatewayUrl(): string {
-        const baseUrl = this.resumeGatewayUrl || this.manager.options.url || 'wss://gateway.fluxer.app';
+        // Use resume URL if available, otherwise use the manager's gateway URL (from /gateway/bot)
+        const baseUrl = this.resumeGatewayUrl || this.manager.gatewayUrl || 'wss://gateway.fluxer.app';
         if (!this.manager.options.compress) return baseUrl;
 
         const separator = baseUrl.includes('?') ? '&' : '?';
@@ -243,11 +247,12 @@ export class GatewayShard extends EventEmitter {
         return `${baseUrl}${separator}compress=zlib-stream`;
     }
 
-    private parsePayload(data: WebSocket.Data): any | null {
+    private async parsePayload(data: WebSocket.Data): Promise<any | null> {
         try {
             let content: string;
             if (this.manager.options.compress && Buffer.isBuffer(data)) {
-                content = zlib.inflateSync(data).toString();
+                // Use async inflate for better performance (non-blocking)
+                content = (await inflateAsync(data)).toString();
             } else {
                 content = data.toString();
             }

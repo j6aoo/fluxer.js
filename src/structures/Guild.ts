@@ -10,7 +10,7 @@ import { GuildEmojiManager } from '../managers/GuildEmojiManager';
 import { GuildBanManager } from '../managers/GuildBanManager';
 import { PresenceManager } from '../managers/PresenceManager';
 import { VoiceStateManager } from '../managers/VoiceStateManager';
-
+import { AuditLogManager } from '../managers/AuditLogManager';
 import { InviteManager } from '../managers/InviteManager';
 import { BaseChannel } from './channels';
 import { Invite } from './Invite';
@@ -38,6 +38,7 @@ export class Guild {
     public bans: GuildBanManager;
     public presences: PresenceManager;
     public voiceStates: VoiceStateManager;
+    public auditLogs: AuditLogManager;
     public readonly invites: InviteManager;
 
 
@@ -73,6 +74,7 @@ export class Guild {
         this.bans = new GuildBanManager(this);
         this.presences = new PresenceManager(this);
         this.voiceStates = new VoiceStateManager(this);
+        this.auditLogs = new AuditLogManager(this);
 
         this.emojis = new GuildEmojiManager(this as any);
         if (data.emojis) {
@@ -123,7 +125,7 @@ export class Guild {
 
     /** Delete this guild */
     async delete(password: string): Promise<void> {
-        await this.client.rest.delete(`/guilds/${this.id}`, { body: { password } as any });
+        await this.client.rest.post(`/guilds/${this.id}/delete`, { password });
     }
 
     /** Acknowledge this guild */
@@ -206,6 +208,26 @@ export class Guild {
     /** Get guild emoji list */
     async fetchEmojis(): Promise<EmojiData[]> {
         return this.client.rest.get<EmojiData[]>(`/guilds/${this.id}/emojis`);
+    }
+
+    /** Fetch vanity URL info */
+    async fetchVanityUrl(): Promise<{ code: string | null; uses: number }> {
+        return this.client.rest.get<{ code: string | null; uses: number }>(`/guilds/${this.id}/vanity-url`);
+    }
+
+    /** Reorder channels in the guild */
+    async setChannelPositions(positions: { id: string; position: number; lock_permissions?: boolean; parent_id?: string }[], reason?: string): Promise<ChannelData[]> {
+        return this.client.rest.patch<ChannelData[]>(`/guilds/${this.id}/channels`, positions, { reason });
+    }
+
+    /** Fetch the current bot member in this guild */
+    async fetchMe(): Promise<any> {
+        return this.client.rest.get(`/guilds/${this.id}/members/@me`);
+    }
+
+    /** Edit the current bot member in this guild */
+    async editMe(data: { nick?: string | null }, reason?: string): Promise<any> {
+        return this.client.rest.patch(`/guilds/${this.id}/members/@me`, data, { reason });
     }
 
     toString(): string {

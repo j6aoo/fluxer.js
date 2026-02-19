@@ -136,7 +136,7 @@ export class GuildMemberManager extends PaginatedManager<Snowflake, GuildMember,
 
     /** Search for members */
     async search(options: { query: string; limit?: number }): Promise<Collection<Snowflake, GuildMember>> {
-        const data = await this.client.rest.get<GuildMemberData[]>(`/guilds/${this.guild.id}/members/search`, {
+        const data = await this.client.rest.post<GuildMemberData[]>(`/guilds/${this.guild.id}/members-search`, {
             query: options.query,
             limit: options.limit
         });

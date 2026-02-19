@@ -61,7 +61,7 @@ export class MessageManager extends PaginatedManager<string, Message, string> {
 
     /** Fetch pinned messages */
     async fetchPinned(): Promise<Collection<string, Message>> {
-        const data = await this.client.rest.get<MessageData[]>(`/channels/${this.channelId}/pins`);
+        const data = await this.client.rest.get<MessageData[]>(`/channels/${this.channelId}/messages/pins`);
         const messages = new Collection<string, Message>();
         for (const messageData of data) {
             const message = this._add(messageData);
